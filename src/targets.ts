@@ -7,6 +7,8 @@ export interface Target {
   name: string;
   url: string;
   group: 'own' | 'client';
+  /** Railway "sleep when idle" service: probed hourly so the monitor does not keep it awake. */
+  sleeps?: boolean;
 }
 
 export interface HeartbeatSpec {
@@ -16,7 +18,20 @@ export interface HeartbeatSpec {
 
 const railway = (host: string, path = '/health') => `https://${host}.up.railway.app${path}`;
 
-export const TARGETS: Target[] = [
+// Services with Railway sleepApplication (serverless) in their .railway/railway.ts. Railway puts a
+// service to sleep after about 10 minutes without traffic; a probe every 5 minutes would keep all
+// of them awake (and billed) around the clock. They are probed once an hour instead: a check wakes
+// the service, which then sleeps again.
+const SLEEPS = new Set([
+  'finance-accounts-api', 'transactions-api', 'budgets-api', 'cash-flow-api', 'reconciliations-api',
+  'business-assets-api', 'investments-api', 'liabilities-api', 'subscriptions-api', 'tax-api',
+  'goals-api', 'habits-api', 'decisions-api', 'diary-api', 'health-api', 'time-api',
+  'roles-skills-api', 'operating-api', 'opportunities-api', 'learning-api', 'projects-api',
+  'content-api', 'radar-api', 'accounts-api', 'accounts-metadata-api', 'automation-api',
+  'intake-api', 'notifications-api', 'integrations-api', 'knowledge-api', 'saas-catalog-api',
+]);
+
+const ALL_TARGETS: Target[] = [
   // Platform
   { name: 'tasks-api', url: railway('tasks-api-production-4785'), group: 'own' },
   { name: 'identity-api', url: railway('identity-api-production-fad1'), group: 'own' },
@@ -80,6 +95,9 @@ export const TARGETS: Target[] = [
     group: 'client',
   },
 ];
+
+export const TARGETS: Target[] = ALL_TARGETS.map((t) => (SLEEPS.has(t.name) ? { ...t, sleeps: true } : t));
+export const SLEEPING_TARGET_NAMES = SLEEPS;
 
 // Jobs that must report in. A job that misses its window raises an alert.
 // `db-backup` covers the Neon databases (Railway project ops-backups); each Railway-hosted

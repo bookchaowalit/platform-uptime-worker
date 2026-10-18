@@ -4,6 +4,7 @@ import {
   MAX_PENDING_ALERTS,
   applyResults,
   chunkAlerts,
+  isDue,
   formatTransitions,
   mapWithConcurrency,
   queueAlerts,
@@ -11,7 +12,7 @@ import {
   targetsForShard,
   type TargetState,
 } from '../src/monitor';
-import { HEARTBEATS, SHARDS, TARGETS } from '../src/targets';
+import { HEARTBEATS, SHARDS, SLEEPING_TARGET_NAMES, TARGETS } from '../src/targets';
 
 const t0 = new Date('2026-10-18T00:00:00Z');
 const at = (minutes: number) => new Date(t0.getTime() + minutes * 60_000);
@@ -33,6 +34,22 @@ describe('targets', () => {
   it('assigns every target to exactly one shard', () => {
     const total = Array.from({ length: SHARDS }, (_, s) => targetsForShard(TARGETS, s, SHARDS).length);
     expect(total.reduce((a, b) => a + b, 0)).toBe(TARGETS.length);
+  });
+});
+
+describe('isDue', () => {
+  it('probes sleeping services only in the first five minutes of the hour', () => {
+    const sleeper = { name: 's', url: 'https://x', group: 'own' as const, sleeps: true };
+    const awake = { name: 'a', url: 'https://y', group: 'own' as const };
+    expect(isDue(sleeper, new Date('2026-10-18T07:02:00Z'))).toBe(true);
+    expect(isDue(sleeper, new Date('2026-10-18T07:05:00Z'))).toBe(false);
+    expect(isDue(awake, new Date('2026-10-18T07:37:00Z'))).toBe(true);
+  });
+
+  it('marks every listed sleeping service on an existing target', () => {
+    const names = new Set(TARGETS.map((t) => t.name));
+    for (const n of SLEEPING_TARGET_NAMES) expect(names.has(n)).toBe(true);
+    expect(TARGETS.filter((t) => t.sleeps).length).toBe(SLEEPING_TARGET_NAMES.size);
   });
 });
 

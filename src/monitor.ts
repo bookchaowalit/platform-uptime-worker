@@ -41,6 +41,14 @@ export const FAILURES_BEFORE_DOWN = 2;
 /** While a target stays down, repeat the alert this often. */
 export const REMINDER_HOURS = 6;
 
+/**
+ * Whether a target is probed in this run. Sleeping services only in the first cron tick of each
+ * hour (shard 0 runs at :00, shard 1 at :02), everything else every run.
+ */
+export function isDue(target: Target, now: Date): boolean {
+  return !target.sleeps || now.getUTCMinutes() < 5;
+}
+
 export function shardOf(index: number, shards: number): number {
   return index % shards;
 }
