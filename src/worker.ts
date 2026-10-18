@@ -42,6 +42,8 @@ const staleKey = (job: string) => `hbstale:${job}`;
 const HB_ALERT_PREFIX = 'hbalert:';
 const hbAlertKey = (job: string) => `${HB_ALERT_PREFIX}${job}:${Date.now()}:${crypto.randomUUID()}`;
 
+/** Parked heartbeat alerts taken per run; the rest wait (bounded KV reads/deletes per run). */
+const MAX_PARKED_PER_RUN = 20;
 /** Messages per run: probes (26) + messages must stay under the 50-subrequest limit. */
 const MAX_MESSAGES_PER_RUN = 5;
 const PUBLIC_STATUS_CACHE_SECONDS = 60;
@@ -79,7 +81,7 @@ export default {
 
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
     const shard = Math.max(0, SHARD_CRONS.indexOf(event.cron));
-    ctx.waitUntil(runShard(env, shard));
+    ctx.waitUntil(runShard(env, shard, { drainMailbox: true }));
   },
 };
 
@@ -134,7 +136,8 @@ async function handleManualCheck(request: Request, env: Env): Promise<Response> 
   if (!Number.isInteger(shard) || shard < 0 || shard >= SHARDS) {
     return Response.json({ error: 'Invalid shard' }, { status: 400 });
   }
-  return Response.json(await runShard(env, shard));
+  // Manual runs never take parked heartbeat alerts, so overlapping with the cron cannot lose them.
+  return Response.json(await runShard(env, shard, { drainMailbox: false }));
 }
 
 async function handleHeartbeat(request: Request, env: Env, url: URL): Promise<Response> {
@@ -165,7 +168,7 @@ async function handleHeartbeat(request: Request, env: Env, url: URL): Promise<Re
   return Response.json({ recorded: true });
 }
 
-async function runShard(env: Env, shard: number) {
+async function runShard(env: Env, shard: number, opts: { drainMailbox: boolean }) {
   const now = new Date();
   const targets = targetsForShard(TARGETS, shard, SHARDS);
   const results = await mapWithConcurrency(targets, PROBE_CONCURRENCY, checkTarget);
@@ -187,7 +190,9 @@ async function runShard(env: Env, shard: number) {
       records[h.job] = await env.MONITOR_KV.get<HeartbeatRecord>(heartbeatKey(h.job), 'json');
       alerted[h.job] = await env.MONITOR_KV.get(staleKey(h.job));
     }
-    const listed = await env.MONITOR_KV.list({ prefix: HB_ALERT_PREFIX });
+    const listed = opts.drainMailbox
+      ? await env.MONITOR_KV.list({ prefix: HB_ALERT_PREFIX, limit: MAX_PARKED_PER_RUN })
+      : { keys: [] };
     for (const { name } of listed.keys) {
       const text = await env.MONITOR_KV.get(name);
       if (text) parkedAlerts.push({ key: name, text });
@@ -200,7 +205,11 @@ async function runShard(env: Env, shard: number) {
   }
 
   // Undelivered alerts from earlier runs go first; they stay queued until Telegram accepts them.
+  const incoming = [...previous.pendingAlerts, ...parkedAlerts.map((p) => p.text), ...fresh];
   const queued = queueAlerts(previous.pendingAlerts, [...parkedAlerts.map((p) => p.text), ...fresh]);
+  // queueAlerts drops the oldest entries on overflow; parked events that fell off stay parked.
+  const droppedParked = Math.max(0, incoming.length - queued.length - previous.pendingAlerts.length);
+  const retainedParked = parkedAlerts.slice(droppedParked);
   const pendingAlerts = queued.length ? await deliver(env, queued) : [];
 
   // The queue is durable before anything that would suppress regenerating an alert is written.
@@ -209,7 +218,7 @@ async function runShard(env: Env, shard: number) {
     ...staleMarks.map((job) => env.MONITOR_KV.put(staleKey(job), now.toISOString())),
     // These events are now delivered or in the durable shard queue; their keys are immutable, so
     // deleting them cannot drop a newer report.
-    ...parkedAlerts.map((p) => env.MONITOR_KV.delete(p.key)),
+    ...retainedParked.map((p) => env.MONITOR_KV.delete(p.key)),
   ]);
   return { shard, checked: results.length, transitions, pendingAlerts: pendingAlerts.length, timestamp: now.toISOString() };
 }
