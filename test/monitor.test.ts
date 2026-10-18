@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
+  MAX_MESSAGE_CHARS,
   MAX_PENDING_ALERTS,
   applyResults,
+  chunkAlerts,
   formatTransitions,
   mapWithConcurrency,
   queueAlerts,
@@ -23,8 +25,8 @@ describe('targets', () => {
 
   it('keeps every shard under the free-plan subrequest budget', () => {
     for (let shard = 0; shard < SHARDS; shard++) {
-      // checks + one Telegram message must stay below 50
-      expect(targetsForShard(TARGETS, shard, SHARDS).length + 1).toBeLessThan(50);
+      // checks + up to five Telegram messages must stay below 50
+      expect(targetsForShard(TARGETS, shard, SHARDS).length + 5).toBeLessThan(50);
     }
   });
 
@@ -105,6 +107,22 @@ describe('queueAlerts', () => {
     const queued = queueAlerts([], many);
     expect(queued).toHaveLength(MAX_PENDING_ALERTS);
     expect(queued.at(-1)).toBe(`x${MAX_PENDING_ALERTS + 4}`);
+  });
+});
+
+describe('chunkAlerts', () => {
+  it('splits on line boundaries under the limit and keeps every line', () => {
+    const lines = Array.from({ length: 7 }, (_, i) => `${i}`.padEnd(800, 'x'));
+    const chunks = chunkAlerts(lines);
+    expect(chunks.flat()).toEqual(lines);
+    for (const c of chunks) expect(c.join('\n').length).toBeLessThanOrEqual(MAX_MESSAGE_CHARS);
+    expect(chunks.length).toBe(2);
+  });
+
+  it('shortens a single oversized line instead of dropping it', () => {
+    const [[line]] = chunkAlerts(['y'.repeat(MAX_MESSAGE_CHARS + 100)]);
+    expect(line.length).toBeLessThanOrEqual(MAX_MESSAGE_CHARS);
+    expect(line.endsWith('(truncated)')).toBe(true);
   });
 });
 

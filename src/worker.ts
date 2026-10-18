@@ -5,6 +5,7 @@
 
 import {
   applyResults,
+  chunkAlerts,
   formatTransitions,
   mapWithConcurrency,
   queueAlerts,
@@ -35,10 +36,32 @@ const PROBE_CONCURRENCY = 6;
 const stateKey = (shard: number) => `state:${shard}`;
 const heartbeatKey = (job: string) => `hb:${job}`;
 const staleKey = (job: string) => `hbstale:${job}`;
+// A failed-run alert the heartbeat handler could not deliver. Only the handler writes it and only
+// the shard 0 cron removes it, so neither ever rewrites the other's state.
+const hbAlertKey = (job: string) => `hbalert:${job}`;
+
+/** Messages per run: probes (26) + messages must stay under the 50-subrequest limit. */
+const MAX_MESSAGES_PER_RUN = 5;
+const PUBLIC_STATUS_CACHE_SECONDS = 60;
 
 async function readShard(env: Env, shard: number): Promise<ShardState> {
-  const raw = await env.MONITOR_KV.get<Partial<ShardState>>(stateKey(shard), 'json');
-  return { targets: raw?.targets ?? {}, pendingAlerts: raw?.pendingAlerts ?? [] };
+  const raw = await env.MONITOR_KV.get<Record<string, unknown>>(stateKey(shard), 'json');
+  if (!raw) return { targets: {}, pendingAlerts: [] };
+  // Before v2.1 the value was the bare target map.
+  if (!('targets' in raw)) return { targets: raw as ShardState['targets'], pendingAlerts: [] };
+  const state = raw as Partial<ShardState>;
+  return { targets: state.targets ?? {}, pendingAlerts: state.pendingAlerts ?? [] };
+}
+
+/** Send queued lines in Telegram-sized messages; return the lines that were not delivered. */
+async function deliver(env: Env, lines: string[]): Promise<string[]> {
+  const chunks = chunkAlerts(lines);
+  for (let i = 0; i < chunks.length; i++) {
+    if (i >= MAX_MESSAGES_PER_RUN || !(await sendTelegram(env, chunks[i].join('\n')))) {
+      return chunks.slice(i).flat();
+    }
+  }
+  return [];
 }
 
 export default {
@@ -65,6 +88,13 @@ function authorized(request: Request, token: string | undefined): boolean {
 
 async function handleStatus(request: Request, env: Env): Promise<Response> {
   const full = authorized(request, env.MONITOR_TOKEN);
+  // Public requests are served from the edge cache so page traffic cannot use up the KV read
+  // allowance the cron depends on.
+  const cacheKey = new Request(new URL('/status', request.url).toString());
+  if (!full) {
+    const cached = await caches.default.match(cacheKey);
+    if (cached) return cached;
+  }
   const states: ShardState['targets'] = {};
   for (let shard = 0; shard < SHARDS; shard++) Object.assign(states, (await readShard(env, shard)).targets);
   const results = TARGETS.filter((t) => full || t.group === 'own').map((t) => {
@@ -86,7 +116,11 @@ async function handleStatus(request: Request, env: Env): Promise<Response> {
         ),
       )
     : undefined;
-  return Response.json({ results, heartbeats, timestamp: new Date().toISOString() });
+  const response = Response.json({ results, heartbeats, timestamp: new Date().toISOString() });
+  if (full) return response;
+  response.headers.set('Cache-Control', `public, max-age=${PUBLIC_STATUS_CACHE_SECONDS}`);
+  await caches.default.put(cacheKey, response.clone());
+  return response;
 }
 
 async function handleManualCheck(request: Request, env: Env): Promise<Response> {
@@ -123,13 +157,8 @@ async function handleHeartbeat(request: Request, env: Env, url: URL): Promise<Re
     const failed = (detail as { failed?: unknown } | null)?.failed;
     const list = Array.isArray(failed) && failed.length ? `: ${failed.join(', ')}` : '';
     const text = `🔴 ${job} run failed${list}`;
-    if (!(await sendTelegram(env, text))) {
-      // Hand it to shard 0's retry queue. Rare (a failed run and a Telegram outage at once), so the
-      // read-modify-write race with the cron is acceptable.
-      const state = await readShard(env, 0);
-      state.pendingAlerts = queueAlerts(state.pendingAlerts, [text]);
-      await env.MONITOR_KV.put(stateKey(0), JSON.stringify(state));
-    }
+    // If Telegram is down, park the alert under its own key; the shard 0 cron retries it.
+    if (!(await sendTelegram(env, text))) await env.MONITOR_KV.put(hbAlertKey(job), text);
   }
   return Response.json({ recorded: true });
 }
@@ -146,26 +175,38 @@ async function runShard(env: Env, shard: number) {
   if (transitions.length) fresh.push(formatTransitions(transitions, now));
 
   // Shard 0 also watches the scheduled jobs.
-  const staleWrites: Promise<void>[] = [];
+  const staleMarks: string[] = [];
+  const parkedAlerts: { key: string; text: string }[] = [];
   if (shard === 0) {
     const records: Record<string, HeartbeatRecord | null> = {};
     const alerted: Record<string, string | null> = {};
     for (const h of HEARTBEATS) {
       records[h.job] = await env.MONITOR_KV.get<HeartbeatRecord>(heartbeatKey(h.job), 'json');
       alerted[h.job] = await env.MONITOR_KV.get(staleKey(h.job));
+      const parked = await env.MONITOR_KV.get(hbAlertKey(h.job));
+      if (parked) parkedAlerts.push({ key: hbAlertKey(h.job), text: parked });
     }
     for (const spec of staleHeartbeats(HEARTBEATS, records, alerted, now)) {
       const last = records[spec.job]?.at;
       fresh.push(`⏰ ${spec.job} has not reported for over ${spec.maxAgeHours}h${last ? ` (last: ${last})` : ' (never)'}`);
-      staleWrites.push(env.MONITOR_KV.put(staleKey(spec.job), now.toISOString()));
+      staleMarks.push(spec.job);
     }
   }
 
   // Undelivered alerts from earlier runs go first; they stay queued until Telegram accepts them.
-  let pendingAlerts = queueAlerts(previous.pendingAlerts, fresh);
-  if (pendingAlerts.length && (await sendTelegram(env, pendingAlerts.join('\n')))) pendingAlerts = [];
+  const queued = queueAlerts(previous.pendingAlerts, [...parkedAlerts.map((p) => p.text), ...fresh]);
+  const pendingAlerts = queued.length ? await deliver(env, queued) : [];
 
-  await Promise.all([env.MONITOR_KV.put(stateKey(shard), JSON.stringify({ targets: state, pendingAlerts })), ...staleWrites]);
+  // The queue is durable before anything that would suppress regenerating an alert is written.
+  await env.MONITOR_KV.put(stateKey(shard), JSON.stringify({ targets: state, pendingAlerts }));
+  await Promise.all([
+    ...staleMarks.map((job) => env.MONITOR_KV.put(staleKey(job), now.toISOString())),
+    // Parked alerts are now in the shard queue (or delivered); remove the copy unless the handler
+    // replaced it with a newer one in the meantime.
+    ...parkedAlerts.map(async (p) => {
+      if ((await env.MONITOR_KV.get(p.key)) === p.text) await env.MONITOR_KV.delete(p.key);
+    }),
+  ]);
   return { shard, checked: results.length, transitions, pendingAlerts: pendingAlerts.length, timestamp: now.toISOString() };
 }
 
@@ -205,7 +246,7 @@ async function sendTelegram(env: Env, text: string): Promise<boolean> {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       signal: AbortSignal.timeout(10_000),
-      body: JSON.stringify({ chat_id: env.TELEGRAM_CHAT_ID, text: `[monitor] ${text}`.slice(0, 4000), disable_web_page_preview: true }),
+      body: JSON.stringify({ chat_id: env.TELEGRAM_CHAT_ID, text: `[monitor] ${text}`, disable_web_page_preview: true }),
     });
     if (!response.ok) console.error('Telegram send failed', response.status);
     return response.ok;

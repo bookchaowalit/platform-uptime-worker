@@ -129,6 +129,32 @@ export function staleHeartbeats(
   });
 }
 
+/** Telegram rejects messages over 4096 characters; stay below it with room for the prefix. */
+export const MAX_MESSAGE_CHARS = 3900;
+
+/**
+ * Group alert lines into Telegram-sized messages without splitting a line. A single line longer
+ * than the limit is shortened with a marker rather than dropped.
+ */
+export function chunkAlerts(lines: string[], max = MAX_MESSAGE_CHARS): string[][] {
+  const chunks: string[][] = [];
+  let current: string[] = [];
+  let size = 0;
+  for (const raw of lines) {
+    const line = raw.length > max ? `${raw.slice(0, max - 20)} … (truncated)` : raw;
+    const added = (current.length ? 1 : 0) + line.length;
+    if (current.length && size + added > max) {
+      chunks.push(current);
+      current = [];
+      size = 0;
+    }
+    size += (current.length ? 1 : 0) + line.length;
+    current.push(line);
+  }
+  if (current.length) chunks.push(current);
+  return chunks;
+}
+
 /** Queue new alert lines behind undelivered ones, keeping the newest MAX_PENDING_ALERTS. */
 export function queueAlerts(pending: string[], fresh: string[]): string[] {
   return [...pending, ...fresh].slice(-MAX_PENDING_ALERTS);
