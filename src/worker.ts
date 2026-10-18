@@ -6,6 +6,7 @@
 import {
   applyResults,
   chunkAlerts,
+  isDue,
   formatTransitions,
   mapWithConcurrency,
   queueAlerts,
@@ -174,11 +175,15 @@ async function handleHeartbeat(request: Request, env: Env, url: URL): Promise<Re
 
 async function runShard(env: Env, shard: number, opts: { readOnly: boolean }) {
   const now = new Date();
-  const targets = targetsForShard(TARGETS, shard, SHARDS);
+  // Manual checks probe everything; the cron skips sleeping services outside their hourly slot.
+  const targets = targetsForShard(TARGETS, shard, SHARDS).filter((t) => opts.readOnly || isDue(t, now));
   const results = await mapWithConcurrency(targets, PROBE_CONCURRENCY, checkTarget);
 
   const previous = await readShard(env, shard);
-  const { state, transitions } = applyResults(previous.targets, results, now);
+  const applied = applyResults(previous.targets, results, now);
+  // Targets not probed this run keep their last state.
+  const state = { ...previous.targets, ...applied.state };
+  const { transitions } = applied;
 
   const fresh: string[] = [];
   // One queue entry per line, so chunking never has to cut a multi-line block.

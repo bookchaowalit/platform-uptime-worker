@@ -15,6 +15,9 @@ Cloudflare Worker that monitors your services 24/7 on the **free tier**.
 - Checks every production service (own + hosted client services) every 5 minutes. The list
   lives in `src/targets.ts`; two cron triggers split it into shards so each run stays under the
   free plan's 50-subrequest limit.
+- The 31 services that use Railway "sleep when idle" are probed once an hour (a 5-minute probe would
+  keep them awake and billed all the time), so an outage there is reported within about 2 hours.
+  Everything else is probed every 5 minutes.
 - Telegram alert when a target fails twice in a row (about 10 minutes), a reminder every 6 hours
   while it stays down, and a recovery message.
 - Heartbeats for scheduled jobs: `POST /heartbeat/<job>` with `Authorization: Bearer
