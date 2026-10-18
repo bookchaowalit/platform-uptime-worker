@@ -92,6 +92,10 @@ export const HEARTBEATS: HeartbeatSpec[] = [
   'db-backup-scannpop',
   'db-backup-teeparinwat',
 ].map((job) => ({ job, maxAgeHours: 26 } as HeartbeatSpec)).concat([
+  // Weekly automation-token rotation (platform-empire token-rotate cron, Sundays). 8 days =
+  // one missed run plus a day; tokens live 30 days and rotate 10 days early, so an alert comes
+  // well before any token expires.
+  { job: 'token-rotate', maxAgeHours: 8 * 24 },
   // Monthly restore drill (platform-db-backup scripts/restore-drill.sh). The alert after 35 days
   // doubles as the reminder that the next drill is due.
   { job: 'restore-drill', maxAgeHours: 35 * 24 },
