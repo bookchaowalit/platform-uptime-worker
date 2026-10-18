@@ -34,7 +34,7 @@ export interface ShardState {
 }
 
 /** Undelivered alert lines kept for retry; the oldest are dropped beyond this. */
-export const MAX_PENDING_ALERTS = 40;
+export const MAX_PENDING_ALERTS = 200;
 
 /** A target is declared down after this many failed checks in a row (10 minutes at 5-minute cron). */
 export const FAILURES_BEFORE_DOWN = 2;

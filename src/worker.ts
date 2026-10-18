@@ -36,9 +36,11 @@ const PROBE_CONCURRENCY = 6;
 const stateKey = (shard: number) => `state:${shard}`;
 const heartbeatKey = (job: string) => `hb:${job}`;
 const staleKey = (job: string) => `hbstale:${job}`;
-// A failed-run alert the heartbeat handler could not deliver. Only the handler writes it and only
-// the shard 0 cron removes it, so neither ever rewrites the other's state.
-const hbAlertKey = (job: string) => `hbalert:${job}`;
+// A failed-run alert the heartbeat handler could not deliver: one immutable key per event. The
+// handler only creates keys, the shard 0 cron only deletes keys it has already copied into its
+// durable queue, so no event is ever overwritten or lost.
+const HB_ALERT_PREFIX = 'hbalert:';
+const hbAlertKey = (job: string) => `${HB_ALERT_PREFIX}${job}:${Date.now()}:${crypto.randomUUID()}`;
 
 /** Messages per run: probes (26) + messages must stay under the 50-subrequest limit. */
 const MAX_MESSAGES_PER_RUN = 5;
@@ -172,7 +174,8 @@ async function runShard(env: Env, shard: number) {
   const { state, transitions } = applyResults(previous.targets, results, now);
 
   const fresh: string[] = [];
-  if (transitions.length) fresh.push(formatTransitions(transitions, now));
+  // One queue entry per line, so chunking never has to cut a multi-line block.
+  if (transitions.length) fresh.push(...formatTransitions(transitions, now).split('\n'));
 
   // Shard 0 also watches the scheduled jobs.
   const staleMarks: string[] = [];
@@ -183,8 +186,11 @@ async function runShard(env: Env, shard: number) {
     for (const h of HEARTBEATS) {
       records[h.job] = await env.MONITOR_KV.get<HeartbeatRecord>(heartbeatKey(h.job), 'json');
       alerted[h.job] = await env.MONITOR_KV.get(staleKey(h.job));
-      const parked = await env.MONITOR_KV.get(hbAlertKey(h.job));
-      if (parked) parkedAlerts.push({ key: hbAlertKey(h.job), text: parked });
+    }
+    const listed = await env.MONITOR_KV.list({ prefix: HB_ALERT_PREFIX });
+    for (const { name } of listed.keys) {
+      const text = await env.MONITOR_KV.get(name);
+      if (text) parkedAlerts.push({ key: name, text });
     }
     for (const spec of staleHeartbeats(HEARTBEATS, records, alerted, now)) {
       const last = records[spec.job]?.at;
@@ -201,11 +207,9 @@ async function runShard(env: Env, shard: number) {
   await env.MONITOR_KV.put(stateKey(shard), JSON.stringify({ targets: state, pendingAlerts }));
   await Promise.all([
     ...staleMarks.map((job) => env.MONITOR_KV.put(staleKey(job), now.toISOString())),
-    // Parked alerts are now in the shard queue (or delivered); remove the copy unless the handler
-    // replaced it with a newer one in the meantime.
-    ...parkedAlerts.map(async (p) => {
-      if ((await env.MONITOR_KV.get(p.key)) === p.text) await env.MONITOR_KV.delete(p.key);
-    }),
+    // These events are now delivered or in the durable shard queue; their keys are immutable, so
+    // deleting them cannot drop a newer report.
+    ...parkedAlerts.map((p) => env.MONITOR_KV.delete(p.key)),
   ]);
   return { shard, checked: results.length, transitions, pendingAlerts: pendingAlerts.length, timestamp: now.toISOString() };
 }

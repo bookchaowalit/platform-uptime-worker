@@ -59,3 +59,13 @@ a day (limit 100,000) and about 576 KV writes a day (limit 1,000).
 ## ที่มา
 
 ย้ายมาจาก `solo-empire/infra/cloud-monitor/` (2026-10-11) พร้อมประวัติ git. Worker ที่ deploy: `solo-empire-monitor` ที่ https://solo-empire-monitor.bookchaowalit.workers.dev (`monitor.bookchaowalit.com` ยังชี้ไป Vercel ไม่ใช่ Worker นี้)
+
+## Known limits (accepted)
+
+- **Public `/status` and KV reads.** Public responses are cached at the edge for 60 s, but cache
+  misses are not coalesced, so a flood of uncached requests (an attack) could still use up the
+  free plan's 100,000 KV reads a day and make the cron's reads fail until the daily reset. Normal
+  traffic is far below this. If it ever happens, add a Cloudflare rate-limiting rule on
+  `/status`, or move to Workers Paid.
+- **KV is eventually consistent.** A parked heartbeat alert can take up to a minute to appear in
+  `list()`. It is picked up on a later run and is never deleted before it has been copied.
