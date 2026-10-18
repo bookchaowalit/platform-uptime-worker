@@ -81,7 +81,17 @@ export const TARGETS: Target[] = [
 ];
 
 // Jobs that must report in. A job that misses its window raises an alert.
-export const HEARTBEATS: HeartbeatSpec[] = [{ job: 'db-backup', maxAgeHours: 26 }];
+// `db-backup` covers the Neon databases (Railway project ops-backups); each Railway-hosted
+// database is backed up by a cron service inside its own project (private network only).
+export const HEARTBEATS: HeartbeatSpec[] = [
+  'db-backup',
+  'db-backup-ev3',
+  'db-backup-a2n',
+  'db-backup-tma',
+  'db-backup-scannpop',
+  'db-backup-teeparinwat',
+  'db-backup-enchanting-dream',
+].map((job) => ({ job, maxAgeHours: 26 }));
 
 // Two cron triggers split the targets so each invocation stays well under the free plan's
 // 50-subrequest limit (checks + one Telegram message).
