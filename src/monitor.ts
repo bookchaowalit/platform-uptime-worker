@@ -25,8 +25,16 @@ export interface HeartbeatRecord {
   at: string;
   ok: boolean;
   detail?: unknown;
-  staleAlertedAt?: string;
 }
+
+/** Per-shard state stored as one KV value: target states plus alerts not yet delivered. */
+export interface ShardState {
+  targets: Record<string, TargetState>;
+  pendingAlerts: string[];
+}
+
+/** Undelivered alert lines kept for retry; the oldest are dropped beyond this. */
+export const MAX_PENDING_ALERTS = 40;
 
 /** A target is declared down after this many failed checks in a row (10 minutes at 5-minute cron). */
 export const FAILURES_BEFORE_DOWN = 2;
@@ -100,19 +108,44 @@ export function applyResults(
   return { state, transitions };
 }
 
-/** Heartbeats that are overdue and have not been alerted since their last report. */
+/**
+ * Heartbeats that are overdue. `staleAlertedAt` is kept under its own key so the cron never
+ * rewrites a heartbeat record (a POST landing between read and write would otherwise be lost).
+ */
 export function staleHeartbeats(
   specs: HeartbeatSpec[],
   records: Record<string, HeartbeatRecord | null>,
+  staleAlertedAt: Record<string, string | null>,
   now: Date,
 ): HeartbeatSpec[] {
   return specs.filter((spec) => {
     const record = records[spec.job];
-    if (!record) return true;
-    if (hoursBetween(record.at, now) < spec.maxAgeHours) return false;
+    if (record && hoursBetween(record.at, now) < spec.maxAgeHours) return false;
+    const alerted = staleAlertedAt[spec.job];
+    // An alert sent before the latest report belongs to an earlier missed window.
+    const alertedThisWindow = alerted && (!record || alerted > record.at);
     // Alert once per missed window, then again every REMINDER_HOURS.
-    return !record.staleAlertedAt || hoursBetween(record.staleAlertedAt, now) >= REMINDER_HOURS;
+    return !alertedThisWindow || hoursBetween(alerted as string, now) >= REMINDER_HOURS;
   });
+}
+
+/** Queue new alert lines behind undelivered ones, keeping the newest MAX_PENDING_ALERTS. */
+export function queueAlerts(pending: string[], fresh: string[]): string[] {
+  return [...pending, ...fresh].slice(-MAX_PENDING_ALERTS);
+}
+
+/** Run `fn` over `items` with at most `limit` in flight, preserving order. */
+export async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await fn(items[index]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 export function formatTransitions(transitions: Transition[], now: Date): string {

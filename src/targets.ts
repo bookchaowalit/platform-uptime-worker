@@ -90,7 +90,6 @@ export const HEARTBEATS: HeartbeatSpec[] = [
   'db-backup-tma',
   'db-backup-scannpop',
   'db-backup-teeparinwat',
-  'db-backup-enchanting-dream',
 ].map((job) => ({ job, maxAgeHours: 26 }));
 
 // Two cron triggers split the targets so each invocation stays well under the free plan's

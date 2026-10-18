@@ -6,11 +6,13 @@
 import {
   applyResults,
   formatTransitions,
+  mapWithConcurrency,
+  queueAlerts,
   staleHeartbeats,
   targetsForShard,
   type CheckResult,
   type HeartbeatRecord,
-  type TargetState,
+  type ShardState,
 } from './monitor';
 import { HEARTBEATS, SHARDS, TARGETS, type Target } from './targets';
 
@@ -25,8 +27,19 @@ export interface Env {
 // Cron expressions in wrangler.toml, in shard order.
 const SHARD_CRONS = ['*/5 * * * *', '2-59/5 * * * *'];
 
+// Cloudflare allows six connections waiting for response headers at once; more just queue, and a
+// queued probe's timer would already be running. Keep probes at six and start each timer when the
+// probe actually starts.
+const PROBE_CONCURRENCY = 6;
+
 const stateKey = (shard: number) => `state:${shard}`;
 const heartbeatKey = (job: string) => `hb:${job}`;
+const staleKey = (job: string) => `hbstale:${job}`;
+
+async function readShard(env: Env, shard: number): Promise<ShardState> {
+  const raw = await env.MONITOR_KV.get<Partial<ShardState>>(stateKey(shard), 'json');
+  return { targets: raw?.targets ?? {}, pendingAlerts: raw?.pendingAlerts ?? [] };
+}
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -52,10 +65,8 @@ function authorized(request: Request, token: string | undefined): boolean {
 
 async function handleStatus(request: Request, env: Env): Promise<Response> {
   const full = authorized(request, env.MONITOR_TOKEN);
-  const states: Record<string, TargetState> = {};
-  for (let shard = 0; shard < SHARDS; shard++) {
-    Object.assign(states, (await env.MONITOR_KV.get<Record<string, TargetState>>(stateKey(shard), 'json')) ?? {});
-  }
+  const states: ShardState['targets'] = {};
+  for (let shard = 0; shard < SHARDS; shard++) Object.assign(states, (await readShard(env, shard)).targets);
   const results = TARGETS.filter((t) => full || t.group === 'own').map((t) => {
     const s = states[t.name];
     return {
@@ -111,7 +122,14 @@ async function handleHeartbeat(request: Request, env: Env, url: URL): Promise<Re
   if (!ok) {
     const failed = (detail as { failed?: unknown } | null)?.failed;
     const list = Array.isArray(failed) && failed.length ? `: ${failed.join(', ')}` : '';
-    await sendTelegram(env, `🔴 ${job} run failed${list}`);
+    const text = `🔴 ${job} run failed${list}`;
+    if (!(await sendTelegram(env, text))) {
+      // Hand it to shard 0's retry queue. Rare (a failed run and a Telegram outage at once), so the
+      // read-modify-write race with the cron is acceptable.
+      const state = await readShard(env, 0);
+      state.pendingAlerts = queueAlerts(state.pendingAlerts, [text]);
+      await env.MONITOR_KV.put(stateKey(0), JSON.stringify(state));
+    }
   }
   return Response.json({ recorded: true });
 }
@@ -119,29 +137,36 @@ async function handleHeartbeat(request: Request, env: Env, url: URL): Promise<Re
 async function runShard(env: Env, shard: number) {
   const now = new Date();
   const targets = targetsForShard(TARGETS, shard, SHARDS);
-  const results = await Promise.all(targets.map(checkTarget));
+  const results = await mapWithConcurrency(targets, PROBE_CONCURRENCY, checkTarget);
 
-  const previous = (await env.MONITOR_KV.get<Record<string, TargetState>>(stateKey(shard), 'json')) ?? {};
-  const { state, transitions } = applyResults(previous, results, now);
-  await env.MONITOR_KV.put(stateKey(shard), JSON.stringify(state));
+  const previous = await readShard(env, shard);
+  const { state, transitions } = applyResults(previous.targets, results, now);
 
-  const messages: string[] = [];
-  if (transitions.length) messages.push(formatTransitions(transitions, now));
+  const fresh: string[] = [];
+  if (transitions.length) fresh.push(formatTransitions(transitions, now));
 
   // Shard 0 also watches the scheduled jobs.
+  const staleWrites: Promise<void>[] = [];
   if (shard === 0) {
     const records: Record<string, HeartbeatRecord | null> = {};
-    for (const h of HEARTBEATS) records[h.job] = await env.MONITOR_KV.get<HeartbeatRecord>(heartbeatKey(h.job), 'json');
-    for (const spec of staleHeartbeats(HEARTBEATS, records, now)) {
+    const alerted: Record<string, string | null> = {};
+    for (const h of HEARTBEATS) {
+      records[h.job] = await env.MONITOR_KV.get<HeartbeatRecord>(heartbeatKey(h.job), 'json');
+      alerted[h.job] = await env.MONITOR_KV.get(staleKey(h.job));
+    }
+    for (const spec of staleHeartbeats(HEARTBEATS, records, alerted, now)) {
       const last = records[spec.job]?.at;
-      messages.push(`⏰ ${spec.job} has not reported for over ${spec.maxAgeHours}h${last ? ` (last: ${last})` : ' (never)'}`);
-      const record: HeartbeatRecord = records[spec.job] ?? { at: new Date(0).toISOString(), ok: false };
-      await env.MONITOR_KV.put(heartbeatKey(spec.job), JSON.stringify({ ...record, staleAlertedAt: now.toISOString() }));
+      fresh.push(`⏰ ${spec.job} has not reported for over ${spec.maxAgeHours}h${last ? ` (last: ${last})` : ' (never)'}`);
+      staleWrites.push(env.MONITOR_KV.put(staleKey(spec.job), now.toISOString()));
     }
   }
 
-  if (messages.length) await sendTelegram(env, messages.join('\n'));
-  return { shard, checked: results.length, transitions, timestamp: now.toISOString() };
+  // Undelivered alerts from earlier runs go first; they stay queued until Telegram accepts them.
+  let pendingAlerts = queueAlerts(previous.pendingAlerts, fresh);
+  if (pendingAlerts.length && (await sendTelegram(env, pendingAlerts.join('\n')))) pendingAlerts = [];
+
+  await Promise.all([env.MONITOR_KV.put(stateKey(shard), JSON.stringify({ targets: state, pendingAlerts })), ...staleWrites]);
+  return { shard, checked: results.length, transitions, pendingAlerts: pendingAlerts.length, timestamp: now.toISOString() };
 }
 
 async function checkTarget(target: Target): Promise<CheckResult> {
@@ -169,17 +194,25 @@ async function checkTarget(target: Target): Promise<CheckResult> {
   }
 }
 
-async function sendTelegram(env: Env, text: string): Promise<void> {
+/** Returns true only when Telegram accepted the message. */
+async function sendTelegram(env: Env, text: string): Promise<boolean> {
   if (!env.TELEGRAM_BOT_TOKEN || !env.TELEGRAM_CHAT_ID) {
-    console.warn('Telegram is not configured; alert not sent:', text);
-    return;
+    console.warn('Telegram is not configured; alert kept for retry');
+    return false;
   }
-  const response = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chat_id: env.TELEGRAM_CHAT_ID, text: `[monitor] ${text}`, disable_web_page_preview: true }),
-  });
-  if (!response.ok) console.error('Telegram send failed', response.status, await response.text());
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: AbortSignal.timeout(10_000),
+      body: JSON.stringify({ chat_id: env.TELEGRAM_CHAT_ID, text: `[monitor] ${text}`.slice(0, 4000), disable_web_page_preview: true }),
+    });
+    if (!response.ok) console.error('Telegram send failed', response.status);
+    return response.ok;
+  } catch (error) {
+    console.error('Telegram send failed', error instanceof Error ? error.message : error);
+    return false;
+  }
 }
 
 const STATUS_PAGE = `<!DOCTYPE html>

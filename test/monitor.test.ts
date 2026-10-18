@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  MAX_PENDING_ALERTS,
   applyResults,
   formatTransitions,
+  mapWithConcurrency,
+  queueAlerts,
   staleHeartbeats,
   targetsForShard,
   type TargetState,
@@ -70,22 +73,54 @@ describe('applyResults', () => {
 
 describe('staleHeartbeats', () => {
   const spec = HEARTBEATS.find((h) => h.job === 'db-backup')!;
+  const fresh = { 'db-backup': { at: at(0).toISOString(), ok: true } };
 
   it('flags a job that never reported', () => {
-    expect(staleHeartbeats([spec], {}, at(0))).toEqual([spec]);
+    expect(staleHeartbeats([spec], {}, {}, at(0))).toEqual([spec]);
   });
 
   it('accepts a fresh report and flags an old one', () => {
-    expect(staleHeartbeats([spec], { 'db-backup': { at: at(0).toISOString(), ok: true } }, at(60))).toEqual([]);
-    expect(
-      staleHeartbeats([spec], { 'db-backup': { at: at(0).toISOString(), ok: true } }, at(27 * 60)),
-    ).toEqual([spec]);
+    expect(staleHeartbeats([spec], fresh, {}, at(60))).toEqual([]);
+    expect(staleHeartbeats([spec], fresh, {}, at(27 * 60))).toEqual([spec]);
   });
 
   it('does not repeat the stale alert within the reminder interval', () => {
-    const record = { at: at(0).toISOString(), ok: true, staleAlertedAt: at(27 * 60).toISOString() };
-    expect(staleHeartbeats([spec], { 'db-backup': record }, at(28 * 60))).toEqual([]);
-    expect(staleHeartbeats([spec], { 'db-backup': record }, at(34 * 60))).toEqual([spec]);
+    const alerted = { 'db-backup': at(27 * 60).toISOString() };
+    expect(staleHeartbeats([spec], fresh, alerted, at(28 * 60))).toEqual([]);
+    expect(staleHeartbeats([spec], fresh, alerted, at(34 * 60))).toEqual([spec]);
+  });
+
+  it('treats an alert from before the latest report as a past window', () => {
+    // Alerted at 27h, then the job reported at 30h and went quiet again: alert at 57h right away.
+    const records = { 'db-backup': { at: at(30 * 60).toISOString(), ok: true } };
+    const alerted = { 'db-backup': at(27 * 60).toISOString() };
+    expect(staleHeartbeats([spec], records, alerted, at(57 * 60))).toEqual([spec]);
+  });
+});
+
+describe('queueAlerts', () => {
+  it('keeps undelivered alerts ahead of new ones and caps the queue', () => {
+    expect(queueAlerts(['a'], ['b'])).toEqual(['a', 'b']);
+    const many = Array.from({ length: MAX_PENDING_ALERTS + 5 }, (_, i) => `x${i}`);
+    const queued = queueAlerts([], many);
+    expect(queued).toHaveLength(MAX_PENDING_ALERTS);
+    expect(queued.at(-1)).toBe(`x${MAX_PENDING_ALERTS + 4}`);
+  });
+});
+
+describe('mapWithConcurrency', () => {
+  it('never runs more than the limit at once and keeps order', async () => {
+    let active = 0;
+    let peak = 0;
+    const out = await mapWithConcurrency([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 3, async (n) => {
+      active++;
+      peak = Math.max(peak, active);
+      await new Promise((r) => setTimeout(r, 5));
+      active--;
+      return n * 2;
+    });
+    expect(peak).toBeLessThanOrEqual(3);
+    expect(out).toEqual([2, 4, 6, 8, 10, 12, 14, 16, 18, 20]);
   });
 });
 
