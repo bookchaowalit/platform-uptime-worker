@@ -40,7 +40,7 @@ Worker secrets (`wrangler secret put <NAME>`, value on stdin):
 | Secret | Source in Infisical |
 |---|---|
 | `MONITOR_TOKEN`, `HEARTBEAT_TOKEN` | `/monitoring` |
-| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | `/telegram` (`TELEGRAM_INFRA_BOT_TOKEN`, `TELEGRAM_CHAT_ID`) |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | `/telegram` (`TELEGRAM_NOTI_BOT_TOKEN`, `TELEGRAM_NOTI_CHAT_ID`: the `book_noti_bot` that notifications-dispatcher also uses) |
 
 `/status` is public but limited to own services. `/check` and the full `/status` need
 `Authorization: Bearer <MONITOR_TOKEN>`; `/heartbeat/<job>` needs `HEARTBEAT_TOKEN`.
