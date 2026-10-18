@@ -90,7 +90,11 @@ export const HEARTBEATS: HeartbeatSpec[] = [
   'db-backup-tma',
   'db-backup-scannpop',
   'db-backup-teeparinwat',
-].map((job) => ({ job, maxAgeHours: 26 }));
+].map((job) => ({ job, maxAgeHours: 26 } as HeartbeatSpec)).concat([
+  // Monthly restore drill (platform-db-backup scripts/restore-drill.sh). The alert after 35 days
+  // doubles as the reminder that the next drill is due.
+  { job: 'restore-drill', maxAgeHours: 35 * 24 },
+]);
 
 // Two cron triggers split the targets so each invocation stays well under the free plan's
 // 50-subrequest limit (checks + one Telegram message).
