@@ -29,7 +29,8 @@ export const TARGETS: Target[] = [
   { name: 'integrations-api', url: railway('solo-integrations-production'), group: 'own' },
   { name: 'saas-catalog-api', url: railway('solo-saas-catalog-production'), group: 'own' },
   { name: 'knowledge-api', url: railway('solo-knowledge-api-production'), group: 'own' },
-  { name: 'empire-mcp', url: railway('empire-mcp-production'), group: 'own' },
+  // empire-mcp is left out until it is deployed: the Railway service exists but has never
+  // run (platform-empire docs/runbooks/remote-mcp.md), so its domain answers "Application not found".
   { name: 'ai-usage-display', url: railway('ai-usage-display-production'), group: 'own' },
   // Finance
   { name: 'finance-accounts-api', url: railway('finance-accounts-api-production'), group: 'own' },
