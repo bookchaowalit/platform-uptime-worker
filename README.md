@@ -12,23 +12,18 @@ Cloudflare Worker that monitors your services 24/7 on the **free tier**.
 
 ## Features
 
-- Checks 7 domains every 5 minutes via Cron Trigger
-- Stores status in KV (last 24 hours)
-- Web UI at `https://solo-empire-monitor.<your-subdomain>.workers.dev`
-- API endpoints: `/status` (public JSON), `/check` (token-protected manual trigger)
-- Zero cost — runs entirely on Cloudflare's free tier (100K requests/day)
-
-## Services Monitored
-
-| Name | URL |
-|------|-----|
-| Solo Empire API | https://api.solo-empire.workers.dev/health |
-| BookDev | https://bookdev.page |
-| BookMoney | https://bookmoney.page |
-| BookLife | https://booklife.page |
-| BookMarketing | https://bookmarketing.page |
-| BookProduct | https://bookproduct.page |
-| BookOps | https://bookops.page |
+- Checks every production service (own + hosted client services) every 5 minutes. The list
+  lives in `src/targets.ts`; two cron triggers split it into shards so each run stays under the
+  free plan's 50-subrequest limit.
+- Telegram alert when a target fails twice in a row (about 10 minutes), a reminder every 6 hours
+  while it stays down, and a recovery message.
+- Heartbeats for scheduled jobs: `POST /heartbeat/<job>` with `Authorization: Bearer
+  <HEARTBEAT_TOKEN>`. A report with `"ok": false` alerts straight away; a job that misses its window
+  (`db-backup`: 26 hours) alerts too.
+- `/status`: public JSON limited to own services, without URLs or errors. With
+  `Authorization: Bearer <MONITOR_TOKEN>` it returns everything, heartbeats included.
+- `/check?shard=0|1` (token-protected) runs one shard right away.
+- One KV write per shard run (about 576 a day), inside the free plan's 1,000 writes a day.
 
 ## Setup (After Re-authenticating Cloudflare)
 
@@ -45,9 +40,12 @@ Cloudflare Worker that monitors your services 24/7 on the **free tier**.
 
 3. **Update `wrangler.toml`** with the KV namespace ID from step 2
 
-4. **Configure the manual-check token:**
+4. **Configure the secrets** (`MONITOR_TOKEN`, `HEARTBEAT_TOKEN`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`):
    ```bash
    npx wrangler secret put MONITOR_TOKEN
+   npx wrangler secret put HEARTBEAT_TOKEN
+   npx wrangler secret put TELEGRAM_BOT_TOKEN
+   npx wrangler secret put TELEGRAM_CHAT_ID
    ```
 
    `/status` remains public for the status page. `/check` returns `401` without
@@ -71,9 +69,8 @@ Cloudflare Worker that monitors your services 24/7 on the **free tier**.
 
 ## Cost
 
-**$0/month** — well within free tier limits:
-- 288 cron runs/day × 7 checks = 2,016 requests/day
-- Free tier: 100,000 requests/day
+**$0/month** on the Workers free plan: about 52 checks every 5 minutes is roughly 15,000 requests
+a day (limit 100,000) and about 576 KV writes a day (limit 1,000).
 
 ## ที่มา
 
