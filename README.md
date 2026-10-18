@@ -22,7 +22,7 @@ Cloudflare Worker that monitors your services 24/7 on the **free tier**.
   (`db-backup`: 26 hours) alerts too.
 - `/status`: public JSON limited to own services, without URLs or errors. With
   `Authorization: Bearer <MONITOR_TOKEN>` it returns everything, heartbeats included.
-- `/check?shard=0|1` (token-protected) runs one shard right away.
+- `/check?shard=0|1` (token-protected) probes one shard right away and reports, read-only: it never writes state or sends alerts.
 - One KV write per shard run (about 576 a day), inside the free plan's 1,000 writes a day.
 
 ## Deploy
@@ -69,6 +69,3 @@ a day (limit 100,000) and about 576 KV writes a day (limit 1,000).
   `/status`, or move to Workers Paid.
 - **KV is eventually consistent.** A parked heartbeat alert can take up to a minute to appear in
   `list()`. It is picked up on a later run and is never deleted before it has been copied.
-- **Manual `/check` during a cron run.** Both runs read and write the same shard state, so the
-  slower one can overwrite the other's latest transitions (a duplicate or missed up/down line,
-  not a lost failed-backup alert: manual runs never touch parked heartbeat alerts).

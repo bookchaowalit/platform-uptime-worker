@@ -42,8 +42,11 @@ const staleKey = (job: string) => `hbstale:${job}`;
 const HB_ALERT_PREFIX = 'hbalert:';
 const hbAlertKey = (job: string) => `${HB_ALERT_PREFIX}${job}:${Date.now()}:${crypto.randomUUID()}`;
 
-/** Parked heartbeat alerts taken per run; the rest wait (bounded KV reads/deletes per run). */
-const MAX_PARKED_PER_RUN = 20;
+/**
+ * Parked heartbeat alerts sent per run. A parked key is deleted only after Telegram accepts it, so
+ * it never depends on the shard queue. 3 per run keeps deletes under the free plan's 1,000/day.
+ */
+const MAX_PARKED_PER_RUN = 3;
 /** Messages per run: probes (26) + messages must stay under the 50-subrequest limit. */
 const MAX_MESSAGES_PER_RUN = 5;
 const PUBLIC_STATUS_CACHE_SECONDS = 60;
@@ -81,7 +84,7 @@ export default {
 
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
     const shard = Math.max(0, SHARD_CRONS.indexOf(event.cron));
-    ctx.waitUntil(runShard(env, shard, { drainMailbox: true }));
+    ctx.waitUntil(runShard(env, shard, { readOnly: false }));
   },
 };
 
@@ -136,8 +139,9 @@ async function handleManualCheck(request: Request, env: Env): Promise<Response> 
   if (!Number.isInteger(shard) || shard < 0 || shard >= SHARDS) {
     return Response.json({ error: 'Invalid shard' }, { status: 400 });
   }
-  // Manual runs never take parked heartbeat alerts, so overlapping with the cron cannot lose them.
-  return Response.json(await runShard(env, shard, { drainMailbox: false }));
+  // Manual runs are read-only: they probe and report, but never write state or send alerts, so
+  // they cannot interfere with the cron.
+  return Response.json(await runShard(env, shard, { readOnly: true }));
 }
 
 async function handleHeartbeat(request: Request, env: Env, url: URL): Promise<Response> {
@@ -168,7 +172,7 @@ async function handleHeartbeat(request: Request, env: Env, url: URL): Promise<Re
   return Response.json({ recorded: true });
 }
 
-async function runShard(env: Env, shard: number, opts: { drainMailbox: boolean }) {
+async function runShard(env: Env, shard: number, opts: { readOnly: boolean }) {
   const now = new Date();
   const targets = targetsForShard(TARGETS, shard, SHARDS);
   const results = await mapWithConcurrency(targets, PROBE_CONCURRENCY, checkTarget);
@@ -180,22 +184,18 @@ async function runShard(env: Env, shard: number, opts: { drainMailbox: boolean }
   // One queue entry per line, so chunking never has to cut a multi-line block.
   if (transitions.length) fresh.push(...formatTransitions(transitions, now).split('\n'));
 
+  if (opts.readOnly) {
+    return { shard, checked: results.length, transitions, pendingAlerts: previous.pendingAlerts.length, readOnly: true, timestamp: now.toISOString() };
+  }
+
   // Shard 0 also watches the scheduled jobs.
   const staleMarks: string[] = [];
-  const parkedAlerts: { key: string; text: string }[] = [];
   if (shard === 0) {
     const records: Record<string, HeartbeatRecord | null> = {};
     const alerted: Record<string, string | null> = {};
     for (const h of HEARTBEATS) {
       records[h.job] = await env.MONITOR_KV.get<HeartbeatRecord>(heartbeatKey(h.job), 'json');
       alerted[h.job] = await env.MONITOR_KV.get(staleKey(h.job));
-    }
-    const listed = opts.drainMailbox
-      ? await env.MONITOR_KV.list({ prefix: HB_ALERT_PREFIX, limit: MAX_PARKED_PER_RUN })
-      : { keys: [] };
-    for (const { name } of listed.keys) {
-      const text = await env.MONITOR_KV.get(name);
-      if (text) parkedAlerts.push({ key: name, text });
     }
     for (const spec of staleHeartbeats(HEARTBEATS, records, alerted, now)) {
       const last = records[spec.job]?.at;
@@ -205,21 +205,23 @@ async function runShard(env: Env, shard: number, opts: { drainMailbox: boolean }
   }
 
   // Undelivered alerts from earlier runs go first; they stay queued until Telegram accepts them.
-  const incoming = [...previous.pendingAlerts, ...parkedAlerts.map((p) => p.text), ...fresh];
-  const queued = queueAlerts(previous.pendingAlerts, [...parkedAlerts.map((p) => p.text), ...fresh]);
-  // queueAlerts drops the oldest entries on overflow; parked events that fell off stay parked.
-  const droppedParked = Math.max(0, incoming.length - queued.length - previous.pendingAlerts.length);
-  const retainedParked = parkedAlerts.slice(droppedParked);
+  const queued = queueAlerts(previous.pendingAlerts, fresh);
   const pendingAlerts = queued.length ? await deliver(env, queued) : [];
 
   // The queue is durable before anything that would suppress regenerating an alert is written.
   await env.MONITOR_KV.put(stateKey(shard), JSON.stringify({ targets: state, pendingAlerts }));
-  await Promise.all([
-    ...staleMarks.map((job) => env.MONITOR_KV.put(staleKey(job), now.toISOString())),
-    // These events are now delivered or in the durable shard queue; their keys are immutable, so
-    // deleting them cannot drop a newer report.
-    ...retainedParked.map((p) => env.MONITOR_KV.delete(p.key)),
-  ]);
+  await Promise.all(staleMarks.map((job) => env.MONITOR_KV.put(staleKey(job), now.toISOString())));
+
+  // Parked failed-run alerts: each key is deleted only after Telegram accepted that alert.
+  if (shard === 0 && !pendingAlerts.length) {
+    const listed = await env.MONITOR_KV.list({ prefix: HB_ALERT_PREFIX, limit: MAX_PARKED_PER_RUN });
+    for (const { name } of listed.keys) {
+      const text = await env.MONITOR_KV.get(name);
+      if (text === null) continue;
+      if (!(await sendTelegram(env, text))) break;
+      await env.MONITOR_KV.delete(name);
+    }
+  }
   return { shard, checked: results.length, transitions, pendingAlerts: pendingAlerts.length, timestamp: now.toISOString() };
 }
 
