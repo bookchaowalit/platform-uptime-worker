@@ -25,47 +25,31 @@ Cloudflare Worker that monitors your services 24/7 on the **free tier**.
 - `/check?shard=0|1` (token-protected) runs one shard right away.
 - One KV write per shard run (about 576 a day), inside the free plan's 1,000 writes a day.
 
-## Setup (After Re-authenticating Cloudflare)
+## Deploy
 
-1. **Re-authenticate Wrangler:**
-   ```bash
-   npx wrangler login
-   ```
+The Worker, its KV namespace (`MONITOR_KV`) and its secrets already exist. Credentials come from
+Infisical, so nothing depends on a local `wrangler login`:
 
-2. **Create KV namespace:**
-   ```bash
-   cd cloud-monitor
-   npx wrangler kv:namespace create MONITOR_KV
-   ```
+```bash
+source ~/.config/solo-empire/environment.sh
+infisical run --projectId "$INFISICAL_PROJECT_ID" --env dev --path /cloudflare --silent -- npx wrangler deploy
+```
 
-3. **Update `wrangler.toml`** with the KV namespace ID from step 2
+Worker secrets (`wrangler secret put <NAME>`, value on stdin):
 
-4. **Configure the secrets** (`MONITOR_TOKEN`, `HEARTBEAT_TOKEN`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`):
-   ```bash
-   npx wrangler secret put MONITOR_TOKEN
-   npx wrangler secret put HEARTBEAT_TOKEN
-   npx wrangler secret put TELEGRAM_BOT_TOKEN
-   npx wrangler secret put TELEGRAM_CHAT_ID
-   ```
+| Secret | Source in Infisical |
+|---|---|
+| `MONITOR_TOKEN`, `HEARTBEAT_TOKEN` | `/monitoring` |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | `/telegram` (`TELEGRAM_INFRA_BOT_TOKEN`, `TELEGRAM_CHAT_ID`) |
 
-   `/status` remains public for the status page. `/check` returns `401` without
-   `Authorization: Bearer <MONITOR_TOKEN>` and is disabled until the secret exists.
-
-5. **Deploy:**
-   ```bash
-   npx wrangler deploy
-   ```
-
-6. **Add Cron Trigger:**
-   ```bash
-   npx wrangler triggers deploy
-   ```
+`/status` is public but limited to own services. `/check` and the full `/status` need
+`Authorization: Bearer <MONITOR_TOKEN>`; `/heartbeat/<job>` needs `HEARTBEAT_TOKEN`.
 
 ## Usage
 
-- **View status page:** `https://solo-empire-monitor.<subdomain>.workers.dev`
-- **Get JSON status:** `https://solo-empire-monitor.<subdomain>.workers.dev/status`
-- **Manual check:** `curl -H "Authorization: Bearer $MONITOR_TOKEN" https://solo-empire-monitor.<subdomain>.workers.dev/check`
+- **View status page:** `https://solo-empire-monitor.bookchaowalit.workers.dev`
+- **Get JSON status:** `https://solo-empire-monitor.bookchaowalit.workers.dev/status`
+- **Manual check:** `curl -H "Authorization: Bearer $MONITOR_TOKEN" https://solo-empire-monitor.bookchaowalit.workers.dev/check`
 
 ## Cost
 
@@ -74,4 +58,4 @@ a day (limit 100,000) and about 576 KV writes a day (limit 1,000).
 
 ## ที่มา
 
-ย้ายมาจาก `solo-empire/infra/cloud-monitor/` (2026-10-11) พร้อมประวัติ git. Worker ที่ deploy: `solo-empire-monitor` (monitor.bookchaowalit.com). `wrangler.toml` ยังมี KV id เป็น placeholder — ตั้ง KV จริงก่อน deploy ใหม่; deploy ต้องได้รับอนุมัติจากเจ้าของ.
+ย้ายมาจาก `solo-empire/infra/cloud-monitor/` (2026-10-11) พร้อมประวัติ git. Worker ที่ deploy: `solo-empire-monitor` ที่ https://solo-empire-monitor.bookchaowalit.workers.dev (`monitor.bookchaowalit.com` ยังชี้ไป Vercel ไม่ใช่ Worker นี้)
