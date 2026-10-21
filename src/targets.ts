@@ -36,6 +36,7 @@ const ALL_TARGETS: Target[] = [
   { name: 'tasks-api', url: railway('tasks-api-production-4785'), group: 'own' },
   { name: 'identity-api', url: railway('identity-api-production-fad1'), group: 'own' },
   { name: 'ai-gateway', url: 'https://api.bookchaowalit.com/healthz', group: 'own' },
+  { name: 'checkin-worker', url: 'https://solo-empire-checkin.bookchaowalit.workers.dev/health', group: 'own' },
   { name: 'accounts-api', url: railway('accounts-api-production-cfee'), group: 'own' },
   { name: 'accounts-metadata-api', url: railway('accounts-metadata-api-production'), group: 'own' },
   { name: 'automation-api', url: railway('automation-api-production-af8e'), group: 'own' },
