@@ -117,6 +117,9 @@ export const HEARTBEATS: HeartbeatSpec[] = [
   // Monthly restore drill (platform-db-backup scripts/restore-drill.sh). The alert after 35 days
   // doubles as the reminder that the next drill is due.
   { job: 'restore-drill', maxAgeHours: 35 * 24 },
+  // Job discovery capture + R2 ingest (career-job-scraper scheduled-capture workflow, every 6 h).
+  // 13 h = one missed or delayed GitHub schedule run plus an hour before the alert.
+  { job: 'job-capture', maxAgeHours: 13 },
 ]);
 
 // Two cron triggers split the targets so each invocation stays well under the free plan's

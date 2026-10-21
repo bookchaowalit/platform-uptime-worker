@@ -117,6 +117,12 @@ describe('staleHeartbeats', () => {
   });
 });
 
+describe('HEARTBEATS', () => {
+  it('watches the 6-hourly job capture with room for one missed run', () => {
+    expect(HEARTBEATS.find((h) => h.job === 'job-capture')?.maxAgeHours).toBe(13);
+  });
+});
+
 describe('queueAlerts', () => {
   it('keeps undelivered alerts ahead of new ones and caps the queue', () => {
     expect(queueAlerts(['a'], ['b'])).toEqual(['a', 'b']);
