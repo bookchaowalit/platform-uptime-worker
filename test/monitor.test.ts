@@ -265,6 +265,10 @@ describe('HEARTBEATS', () => {
   it('watches the 6-hourly job capture with room for one missed run', () => {
     expect(HEARTBEATS.find((h) => h.job === 'job-capture')?.maxAgeHours).toBe(13);
   });
+
+  it('watches the daily check-in run (life-checkin-worker SPEC-002 AC-25)', () => {
+    expect(HEARTBEATS.find((h) => h.job === 'checkin-daily')?.maxAgeHours).toBe(25);
+  });
 });
 
 describe('queueAlerts', () => {

@@ -121,6 +121,9 @@ export const HEARTBEATS: HeartbeatSpec[] = [
   // Job discovery capture + R2 ingest (career-job-scraper scheduled-capture workflow, every 6 h).
   // 13 h = one missed or delayed GitHub schedule run plus an hour before the alert.
   { job: 'job-capture', maxAgeHours: 13 },
+  // Evening check-in (life-checkin-worker SPEC-002): after the 21:30 prompt the Worker checks its
+  // webhook and reports. 25 h = one daily run plus an hour; ok:false alerts at once.
+  { job: 'checkin-daily', maxAgeHours: 25 },
 ]);
 
 // Two cron triggers split the targets (by a hash of the name, so adding a target never moves the
