@@ -5,11 +5,18 @@ import {
   applyResults,
   chunkAlerts,
   isDue,
+  isStale,
   formatTransitions,
   mapWithConcurrency,
+  mergeShardStates,
+  ownStates,
   queueAlerts,
+  recentStates,
+  shardOfName,
   staleHeartbeats,
+  staleTargets,
   targetsForShard,
+  watchedShard,
   type TargetState,
 } from '../src/monitor';
 import { HEARTBEATS, SHARDS, SLEEPING_TARGET_NAMES, TARGETS } from '../src/targets';
@@ -34,6 +41,110 @@ describe('targets', () => {
   it('assigns every target to exactly one shard', () => {
     const total = Array.from({ length: SHARDS }, (_, s) => targetsForShard(TARGETS, s, SHARDS).length);
     expect(total.reduce((a, b) => a + b, 0)).toBe(TARGETS.length);
+  });
+});
+
+describe('shard assignment (TD-004)', () => {
+  const extra = { name: 'new-service', url: 'https://new.example', group: 'own' as const };
+
+  it('keeps every existing target in its shard when a target is inserted', () => {
+    // bc2bb44 inserted checkin-worker at index 3 and moved every later target to the other shard.
+    const before = new Map(TARGETS.map((t) => [t.name, shardOfName(t.name, SHARDS)]));
+    const inserted = [TARGETS[0], extra, ...TARGETS.slice(1)];
+    for (let s = 0; s < SHARDS; s++) {
+      for (const t of targetsForShard(inserted, s, SHARDS)) {
+        if (t.name !== extra.name) expect(before.get(t.name)).toBe(s);
+      }
+    }
+  });
+
+  it('is a pure function of the name', () => {
+    expect(shardOfName('diary-api', 2)).toBe(shardOfName('diary-api', 2));
+    for (const t of TARGETS) expect(shardOfName(t.name, SHARDS)).toBeLessThan(SHARDS);
+  });
+
+  it('keeps the probes, messages and parked sends of every shard under 50 subrequests', () => {
+    // probes + 5 queued messages + 3 parked heartbeat alerts
+    for (let s = 0; s < SHARDS; s++) expect(targetsForShard(TARGETS, s, SHARDS).length + 5 + 3).toBeLessThan(50);
+  });
+});
+
+describe('shard state hygiene (TD-004)', () => {
+  const up = (checkedAt: Date): TargetState => ({
+    status: 'up', consecutiveFailures: 0, since: t0.toISOString(), latency: 10, checkedAt: checkedAt.toISOString(),
+  });
+  const mine = TARGETS.find((t) => shardOfName(t.name, SHARDS) === 0)!;
+  const theirs = TARGETS.find((t) => shardOfName(t.name, SHARDS) === 1)!;
+
+  it('drops entries for targets that belong to another shard or no longer exist', () => {
+    const states = { [mine.name]: up(at(0)), [theirs.name]: up(at(0)), removed: up(at(0)) };
+    expect(Object.keys(ownStates(states, TARGETS, 0, SHARDS))).toEqual([mine.name]);
+  });
+
+  it('reads each target from its own shard, so a stale copy elsewhere cannot win', () => {
+    // The incident: diary-api fresh in shard 0, a 2026-10-21 copy left in shard 1 shown on /status.
+    const fresh = up(at(18 * 60));
+    const stale = up(at(0));
+    const merged = mergeShardStates([{ [mine.name]: fresh }, { [mine.name]: stale }], TARGETS, SHARDS);
+    expect(merged[mine.name]).toEqual(fresh);
+  });
+
+  it('ignores very old previous entries when computing transitions', () => {
+    const states = { a: up(at(0)), b: up(at(7 * 60)) };
+    expect(Object.keys(recentStates(states, at(8 * 60), 6))).toEqual(['b']);
+  });
+});
+
+describe('staleTargets (TD-004)', () => {
+  const awake = { name: 'awake', url: 'https://a', group: 'own' as const };
+  const sleeper = { name: 'sleeper', url: 'https://s', group: 'own' as const, sleeps: true };
+  const checked = (minutes: number): TargetState => ({
+    status: 'up', consecutiveFailures: 0, since: t0.toISOString(), latency: 5, checkedAt: at(minutes).toISOString(),
+  });
+
+  it('marks an awake target stale after 30 minutes and a sleeping one after 2.5 hours', () => {
+    expect(isStale(awake, checked(0), at(29))).toBe(false);
+    expect(isStale(awake, checked(0), at(31))).toBe(true);
+    expect(isStale(sleeper, checked(0), at(149))).toBe(false);
+    expect(isStale(sleeper, checked(0), at(151))).toBe(true);
+  });
+
+  it('alerts once per stale window, then every reminder interval', () => {
+    const first = staleTargets([awake], { awake: checked(0) }, {}, at(40));
+    expect(first.lines).toHaveLength(1);
+    expect(first.lines[0]).toContain('awake');
+    const again = staleTargets([awake], { awake: checked(0) }, first.watch, at(60));
+    expect(again.lines).toEqual([]);
+    const reminder = staleTargets([awake], { awake: checked(0) }, first.watch, at(40 + 6 * 60));
+    expect(reminder.lines).toHaveLength(1);
+  });
+
+  it('reports once when an alerted target is probed again and forgets it', () => {
+    const alerted = staleTargets([awake], { awake: checked(0) }, {}, at(40));
+    const back = staleTargets([awake], { awake: checked(45) }, alerted.watch, at(46));
+    expect(back.lines).toHaveLength(1);
+    expect(back.lines[0]).toContain('probed again');
+    expect(back.watch).toEqual({});
+  });
+
+  it('gives a target with no state a full window before alerting', () => {
+    const seen = staleTargets([awake], {}, {}, at(0));
+    expect(seen.lines).toEqual([]);
+    expect(staleTargets([awake], {}, seen.watch, at(20)).lines).toEqual([]);
+    expect(staleTargets([awake], {}, seen.watch, at(31)).lines).toHaveLength(1);
+  });
+
+  it('gives every watched target a full window from the moment the watcher starts', () => {
+    // After the sharding change a moved target may carry an old checkedAt from an earlier owner.
+    const watchSince = at(600).toISOString();
+    expect(staleTargets([sleeper], { sleeper: checked(0) }, {}, at(601), watchSince).lines).toEqual([]);
+    expect(staleTargets([sleeper], { sleeper: checked(0) }, {}, at(600 + 151), watchSince).lines).toHaveLength(1);
+  });
+
+  it('has each shard watch the next one', () => {
+    expect(watchedShard(0, 2)).toBe(1);
+    expect(watchedShard(1, 2)).toBe(0);
+    expect(watchedShard(0, 1)).toBe(0);
   });
 });
 

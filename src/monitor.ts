@@ -205,3 +205,14 @@ function durationText(fromIso: string | undefined, now: Date): string {
   const hours = Math.floor(minutes / 60);
   return `${hours}h${minutes % 60 ? ` ${minutes % 60}m` : ''}`;
 }
+
+// TD-004 (red): stubs so the new tests fail on behaviour, not on imports.
+export const STALE_AFTER_HOURS = { awake: 0.5, sleeping: 2.5 };
+export type StaleWatch = Record<string, { firstSeen?: string; alertedAt?: string }>;
+export function shardOfName(_name: string, _shards: number): number { return 0; }
+export function ownStates(states: Record<string, TargetState>, _targets: Target[], _shard: number, _shards: number): Record<string, TargetState> { return states; }
+export function mergeShardStates(shards: Record<string, TargetState>[], _targets: Target[], _shards: number): Record<string, TargetState> { return Object.assign({}, ...shards); }
+export function recentStates(states: Record<string, TargetState>, _now: Date, _maxAgeHours: number): Record<string, TargetState> { return states; }
+export function isStale(_target: Target, _state: TargetState | undefined, _now: Date): boolean { return false; }
+export function staleTargets(_targets: Target[], _states: Record<string, TargetState>, watch: StaleWatch, _now: Date, _watchSince?: string): { lines: string[]; watch: StaleWatch } { return { lines: [], watch }; }
+export function watchedShard(shard: number, _shards: number): number { return shard; }
