@@ -10,6 +10,7 @@ import {
   mapWithConcurrency,
   mergeShardStates,
   queueAlerts,
+  handoverStates,
   newestStates,
   shardOfName,
   staleHeartbeats,
@@ -94,6 +95,23 @@ describe('shard state hygiene (TD-004)', () => {
     const fresh = up(at(18 * 60));
     const seeded = newestStates([{ [mine.name]: stale }, { [mine.name]: fresh, [theirs.name]: fresh }], TARGETS, 0, SHARDS);
     expect(seeded).toEqual({ [mine.name]: fresh });
+  });
+
+  it('holds a copy of a moved target until its new owner has one (deploy race, 2026-10-22 10:28Z)', () => {
+    // Shard 1 ran first after the deploy and dropped health-api, so shard 0 seeded from a day-old copy.
+    const copy = up(at(18 * 60));
+    expect(handoverStates({ [mine.name]: copy }, [{}, { [mine.name]: copy }], TARGETS, 1, SHARDS)).toEqual({ [mine.name]: copy });
+    expect(handoverStates({ [mine.name]: copy }, [{ [mine.name]: up(at(18 * 60 + 5)) }, {}], TARGETS, 1, SHARDS)).toEqual({});
+  });
+
+  it('holds the copy while the new owner only has an older entry of its own', () => {
+    // 2026-10-22: shard 0 still had its own health-api entry from 2026-10-21 16:00Z.
+    const copy = up(at(18 * 60));
+    expect(handoverStates({ [mine.name]: copy }, [{ [mine.name]: up(at(0)) }, {}], TARGETS, 1, SHARDS)).toEqual({ [mine.name]: copy });
+  });
+
+  it('never holds copies of removed targets or of its own targets', () => {
+    expect(handoverStates({ removed: up(at(0)), [theirs.name]: up(at(0)) }, [{}, {}], TARGETS, 1, SHARDS)).toEqual({});
   });
 
   it('keeps an ongoing outage across a shard move: no new down alert, recovery still reported', () => {

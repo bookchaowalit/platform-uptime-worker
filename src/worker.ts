@@ -11,6 +11,7 @@ import {
   formatTransitions,
   mapWithConcurrency,
   mergeShardStates,
+  handoverStates,
   newestStates,
   queueAlerts,
   staleHeartbeats,
@@ -200,9 +201,9 @@ async function runShard(env: Env, shard: number, opts: { readOnly: boolean }) {
   for (let s = 0; s < SHARDS; s++) allStates.push(s === shard ? previous.targets : (await readShard(env, s)).targets);
   const seeded = newestStates(allStates, TARGETS, shard, SHARDS);
   const applied = applyResults(seeded, results, now);
-  // Only owned targets are written; targets not probed this run keep their seeded state, and copies
-  // of targets this shard no longer owns are dropped.
-  const state = { ...seeded, ...applied.state };
+  // Owned targets are written with their seeded or new state. A copy of a target that moved away is
+  // kept only until its new owner has an entry; copies of removed targets are dropped.
+  const state = { ...handoverStates(previous.targets, allStates, TARGETS, shard, SHARDS), ...seeded, ...applied.state };
   const { transitions } = applied;
 
   const fresh: string[] = [];
