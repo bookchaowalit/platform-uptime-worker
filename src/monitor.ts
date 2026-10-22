@@ -74,17 +74,6 @@ export function watchedShard(shard: number, shards: number): number {
   return (shard + 1) % shards;
 }
 
-/** Only the entries this shard owns: copies of moved or removed targets are dropped on write. */
-export function ownStates(
-  states: Record<string, TargetState>,
-  targets: Target[],
-  shard: number,
-  shards: number,
-): Record<string, TargetState> {
-  const owned = new Set(targetsForShard(targets, shard, shards).map((t) => t.name));
-  return Object.fromEntries(Object.entries(states).filter(([name]) => owned.has(name)));
-}
-
 /** One state per target, read from the shard that owns it, whatever other shards still hold. */
 export function mergeShardStates(
   shardStates: Record<string, TargetState>[],
@@ -99,15 +88,25 @@ export function mergeShardStates(
   return merged;
 }
 
-/** Previous entries older than this are not used for transitions: they belong to an earlier owner. */
-export const PREVIOUS_MAX_AGE_HOURS = 6;
-
-export function recentStates(
-  states: Record<string, TargetState>,
-  now: Date,
-  maxAgeHours: number,
+/**
+ * Previous state for the targets this shard owns: the newest copy in any shard. A target that
+ * changed shard keeps its real state (an ongoing outage stays down, its recovery is still
+ * reported), and an old copy left behind by an earlier owner always loses.
+ */
+export function newestStates(
+  shardStates: Record<string, TargetState>[],
+  targets: Target[],
+  shard: number,
+  shards: number,
 ): Record<string, TargetState> {
-  return Object.fromEntries(Object.entries(states).filter(([, s]) => hoursBetween(s.checkedAt, now) < maxAgeHours));
+  const seeded: Record<string, TargetState> = {};
+  for (const t of targetsForShard(targets, shard, shards)) {
+    for (const states of shardStates) {
+      const candidate = states[t.name];
+      if (candidate && (!seeded[t.name] || candidate.checkedAt > seeded[t.name].checkedAt)) seeded[t.name] = candidate;
+    }
+  }
+  return seeded;
 }
 
 export interface Transition {
@@ -313,4 +312,3 @@ function durationText(fromIso: string | undefined, now: Date): string {
   const hours = Math.floor(minutes / 60);
   return `${hours}h${minutes % 60 ? ` ${minutes % 60}m` : ''}`;
 }
-

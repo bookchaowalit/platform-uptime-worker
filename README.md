@@ -33,8 +33,9 @@ Cloudflare Worker that monitors your services 24/7 on the **free tier**.
   one has not been probed within that window: a stopped cron or a target that is never due cannot
   report itself. One reminder every 6 hours, and `✅ <name> is being probed again` when it recovers.
   New targets and a freshly deployed watcher get a full window first.
-- One KV write per shard run (about 576 a day), inside the free plan's 1,000 writes a day; the
-  staleness watch adds one KV read per run.
+  If both shard crons stop, nothing in this Worker can report it; that needs an outside check.
+- One KV write per shard run (about 576 a day), inside the free plan's 1,000 writes a day; each
+  run also reads the other shard's state (one KV read) for seeding and the staleness watch.
 
 ## Deploy
 

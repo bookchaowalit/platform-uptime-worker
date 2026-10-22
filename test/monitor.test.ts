@@ -9,9 +9,8 @@ import {
   formatTransitions,
   mapWithConcurrency,
   mergeShardStates,
-  ownStates,
   queueAlerts,
-  recentStates,
+  newestStates,
   shardOfName,
   staleHeartbeats,
   staleTargets,
@@ -76,9 +75,9 @@ describe('shard state hygiene (TD-004)', () => {
   const mine = TARGETS.find((t) => shardOfName(t.name, SHARDS) === 0)!;
   const theirs = TARGETS.find((t) => shardOfName(t.name, SHARDS) === 1)!;
 
-  it('drops entries for targets that belong to another shard or no longer exist', () => {
+  it('keeps only owned targets, dropping moved or removed ones', () => {
     const states = { [mine.name]: up(at(0)), [theirs.name]: up(at(0)), removed: up(at(0)) };
-    expect(Object.keys(ownStates(states, TARGETS, 0, SHARDS))).toEqual([mine.name]);
+    expect(Object.keys(newestStates([states, {}], TARGETS, 0, SHARDS))).toEqual([mine.name]);
   });
 
   it('reads each target from its own shard, so a stale copy elsewhere cannot win', () => {
@@ -89,9 +88,25 @@ describe('shard state hygiene (TD-004)', () => {
     expect(merged[mine.name]).toEqual(fresh);
   });
 
-  it('ignores very old previous entries when computing transitions', () => {
-    const states = { a: up(at(0)), b: up(at(7 * 60)) };
-    expect(Object.keys(recentStates(states, at(8 * 60), 6))).toEqual(['b']);
+  it('seeds each owned target from its newest copy in any shard', () => {
+    // After the hash change diary-api moves to a shard whose own copy is the stale 2026-10-21 one.
+    const stale = up(at(0));
+    const fresh = up(at(18 * 60));
+    const seeded = newestStates([{ [mine.name]: stale }, { [mine.name]: fresh, [theirs.name]: fresh }], TARGETS, 0, SHARDS);
+    expect(seeded).toEqual({ [mine.name]: fresh });
+  });
+
+  it('keeps an ongoing outage across a shard move: no new down alert, recovery still reported', () => {
+    const down: TargetState = {
+      status: 'down', consecutiveFailures: 5, since: at(0).toISOString(), lastAlertAt: at(0).toISOString(), latency: 10000,
+      error: 'timeout after 10s', checkedAt: at(60).toISOString(),
+    };
+    const seeded = newestStates([{}, { [mine.name]: down }], TARGETS, 0, SHARDS);
+    const stillDown = applyResults(seeded, [{ name: mine.name, ok: false, latency: 10000, error: 'timeout after 10s' }], at(65));
+    expect(stillDown.transitions).toEqual([]);
+    expect(stillDown.state[mine.name].since).toBe(at(0).toISOString());
+    const back = applyResults(stillDown.state, [{ name: mine.name, ok: true, latency: 20 }], at(70));
+    expect(back.transitions.map((x) => x.kind)).toEqual(['recovered']);
   });
 });
 

@@ -4,7 +4,6 @@
 // scheduled jobs (nightly database backups), and Telegram alerts. Runs on the Workers free plan.
 
 import {
-  PREVIOUS_MAX_AGE_HOURS,
   applyResults,
   chunkAlerts,
   isDue,
@@ -12,9 +11,8 @@ import {
   formatTransitions,
   mapWithConcurrency,
   mergeShardStates,
-  ownStates,
+  newestStates,
   queueAlerts,
-  recentStates,
   staleHeartbeats,
   staleTargets,
   targetsForShard,
@@ -196,11 +194,15 @@ async function runShard(env: Env, shard: number, opts: { readOnly: boolean }) {
   const results = await mapWithConcurrency(targets, PROBE_CONCURRENCY, checkTarget);
 
   const previous = await readShard(env, shard);
-  // Entries older than PREVIOUS_MAX_AGE_HOURS came from an earlier owner of a moved target.
-  const applied = applyResults(recentStates(previous.targets, now, PREVIOUS_MAX_AGE_HOURS), results, now);
-  // Targets not probed this run keep their last state; copies of targets this shard no longer
-  // owns are dropped, so /status can never show them (TD-004).
-  const state = { ...ownStates(previous.targets, TARGETS, shard, SHARDS), ...applied.state };
+  // Every shard's state: owned targets are seeded from their newest copy anywhere, so a target that
+  // changed shard keeps its real state and an old copy cannot win (TD-004).
+  const allStates: ShardState['targets'][] = [];
+  for (let s = 0; s < SHARDS; s++) allStates.push(s === shard ? previous.targets : (await readShard(env, s)).targets);
+  const seeded = newestStates(allStates, TARGETS, shard, SHARDS);
+  const applied = applyResults(seeded, results, now);
+  // Only owned targets are written; targets not probed this run keep their seeded state, and copies
+  // of targets this shard no longer owns are dropped.
+  const state = { ...seeded, ...applied.state };
   const { transitions } = applied;
 
   const fresh: string[] = [];
@@ -230,7 +232,7 @@ async function runShard(env: Env, shard: number, opts: { readOnly: boolean }) {
   // Each shard checks that the next shard's targets are still being probed: a stopped cron or a
   // target that is never due cannot report itself.
   const watched = watchedShard(shard, SHARDS);
-  const watchedStates = watched === shard ? state : (await readShard(env, watched)).targets;
+  const watchedStates = watched === shard ? state : allStates[watched];
   const watchSince = previous.watchSince ?? now.toISOString();
   const stale = staleTargets(targetsForShard(TARGETS, watched, SHARDS), watchedStates, previous.staleWatch, now, watchSince);
   fresh.push(...stale.lines);
