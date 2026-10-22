@@ -123,6 +123,7 @@ export const HEARTBEATS: HeartbeatSpec[] = [
   { job: 'job-capture', maxAgeHours: 13 },
 ]);
 
-// Two cron triggers split the targets so each invocation stays well under the free plan's
+// Two cron triggers split the targets (by a hash of the name, so adding a target never moves the
+// others: TD-004) so each invocation stays well under the free plan's
 // 50-subrequest limit (checks + one Telegram message).
 export const SHARDS = 2;

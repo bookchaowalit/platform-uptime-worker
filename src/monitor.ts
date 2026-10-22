@@ -31,6 +31,9 @@ export interface HeartbeatRecord {
 export interface ShardState {
   targets: Record<string, TargetState>;
   pendingAlerts: string[];
+  /** Staleness watch over the next shard's targets (TD-004), and when that watch started. */
+  staleWatch: StaleWatch;
+  watchSince?: string;
 }
 
 /** Undelivered alert lines kept for retry; the oldest are dropped beyond this. */
@@ -49,12 +52,62 @@ export function isDue(target: Target, now: Date): boolean {
   return !target.sleeps || now.getUTCMinutes() < 5;
 }
 
-export function shardOf(index: number, shards: number): number {
-  return index % shards;
+/**
+ * Shard of a target, from its name only (32-bit FNV-1a). Index-based sharding moved every later
+ * target to the other shard whenever one was inserted (TD-004).
+ */
+export function shardOfName(name: string, shards: number): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < name.length; i++) {
+    hash ^= name.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash % shards;
 }
 
 export function targetsForShard(targets: Target[], shard: number, shards: number): Target[] {
-  return targets.filter((_, i) => shardOf(i, shards) === shard);
+  return targets.filter((t) => shardOfName(t.name, shards) === shard);
+}
+
+/** The shard whose targets this shard checks for staleness: a stopped cron cannot report itself. */
+export function watchedShard(shard: number, shards: number): number {
+  return (shard + 1) % shards;
+}
+
+/** Only the entries this shard owns: copies of moved or removed targets are dropped on write. */
+export function ownStates(
+  states: Record<string, TargetState>,
+  targets: Target[],
+  shard: number,
+  shards: number,
+): Record<string, TargetState> {
+  const owned = new Set(targetsForShard(targets, shard, shards).map((t) => t.name));
+  return Object.fromEntries(Object.entries(states).filter(([name]) => owned.has(name)));
+}
+
+/** One state per target, read from the shard that owns it, whatever other shards still hold. */
+export function mergeShardStates(
+  shardStates: Record<string, TargetState>[],
+  targets: Target[],
+  shards: number,
+): Record<string, TargetState> {
+  const merged: Record<string, TargetState> = {};
+  for (const t of targets) {
+    const state = shardStates[shardOfName(t.name, shards)]?.[t.name];
+    if (state) merged[t.name] = state;
+  }
+  return merged;
+}
+
+/** Previous entries older than this are not used for transitions: they belong to an earlier owner. */
+export const PREVIOUS_MAX_AGE_HOURS = 6;
+
+export function recentStates(
+  states: Record<string, TargetState>,
+  now: Date,
+  maxAgeHours: number,
+): Record<string, TargetState> {
+  return Object.fromEntries(Object.entries(states).filter(([, s]) => hoursBetween(s.checkedAt, now) < maxAgeHours));
 }
 
 export interface Transition {
@@ -137,6 +190,61 @@ export function staleHeartbeats(
   });
 }
 
+/** A target counts as not probed after this long (sleeping services are probed hourly). */
+export const STALE_AFTER_HOURS = { awake: 0.5, sleeping: 2.5 };
+
+/** Per watched target: when it was first seen without any state, and the last stale alert. */
+export type StaleWatch = Record<string, { firstSeen?: string; alertedAt?: string }>;
+
+export function isStale(target: Target, state: TargetState | undefined, now: Date): boolean {
+  return Boolean(state) && hoursBetween((state as TargetState).checkedAt, now) > staleLimit(target);
+}
+
+function staleLimit(target: Target): number {
+  return target.sleeps ? STALE_AFTER_HOURS.sleeping : STALE_AFTER_HOURS.awake;
+}
+
+const latest = (...isos: (string | undefined)[]) =>
+  isos.filter((x): x is string => Boolean(x)).reduce((a, b) => (a > b ? a : b));
+
+/**
+ * Targets whose last probe is too old: a stopped shard cron, or a target that is never due.
+ * Each target gets a full window from `watchSince` (when the watcher started) and, without any
+ * state, from when it was first seen. Alerts once per stale window, then every REMINDER_HOURS.
+ */
+export function staleTargets(
+  targets: Target[],
+  states: Record<string, TargetState>,
+  watch: StaleWatch,
+  now: Date,
+  watchSince?: string,
+): { lines: string[]; watch: StaleWatch } {
+  const nowIso = now.toISOString();
+  const next: StaleWatch = {};
+  const lines: string[] = [];
+  for (const target of targets) {
+    const state = states[target.name];
+    const seen = watch[target.name] ?? {};
+    const firstSeen = state ? undefined : (seen.firstSeen ?? nowIso);
+    const last = latest(state?.checkedAt, firstSeen, watchSince);
+    if (hoursBetween(last, now) <= staleLimit(target)) {
+      if (seen.alertedAt) lines.push(`✅ ${target.name} is being probed again`);
+      if (firstSeen) next[target.name] = { firstSeen };
+      continue;
+    }
+    if (!seen.alertedAt || hoursBetween(seen.alertedAt, now) >= REMINDER_HOURS) {
+      const expected = target.sleeps ? '1h' : '5m';
+      lines.push(
+        `⏰ ${target.name} not probed for ${durationText(last, now)} (last check: ${state?.checkedAt ?? 'never'}; expected every ${expected})`,
+      );
+      next[target.name] = { ...(firstSeen ? { firstSeen } : {}), alertedAt: nowIso };
+    } else {
+      next[target.name] = { ...(firstSeen ? { firstSeen } : {}), alertedAt: seen.alertedAt };
+    }
+  }
+  return { lines, watch: next };
+}
+
 /** Telegram rejects messages over 4096 characters; stay below it with room for the prefix. */
 export const MAX_MESSAGE_CHARS = 3900;
 
@@ -206,13 +314,3 @@ function durationText(fromIso: string | undefined, now: Date): string {
   return `${hours}h${minutes % 60 ? ` ${minutes % 60}m` : ''}`;
 }
 
-// TD-004 (red): stubs so the new tests fail on behaviour, not on imports.
-export const STALE_AFTER_HOURS = { awake: 0.5, sleeping: 2.5 };
-export type StaleWatch = Record<string, { firstSeen?: string; alertedAt?: string }>;
-export function shardOfName(_name: string, _shards: number): number { return 0; }
-export function ownStates(states: Record<string, TargetState>, _targets: Target[], _shard: number, _shards: number): Record<string, TargetState> { return states; }
-export function mergeShardStates(shards: Record<string, TargetState>[], _targets: Target[], _shards: number): Record<string, TargetState> { return Object.assign({}, ...shards); }
-export function recentStates(states: Record<string, TargetState>, _now: Date, _maxAgeHours: number): Record<string, TargetState> { return states; }
-export function isStale(_target: Target, _state: TargetState | undefined, _now: Date): boolean { return false; }
-export function staleTargets(_targets: Target[], _states: Record<string, TargetState>, watch: StaleWatch, _now: Date, _watchSince?: string): { lines: string[]; watch: StaleWatch } { return { lines: [], watch }; }
-export function watchedShard(shard: number, _shards: number): number { return shard; }
