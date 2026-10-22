@@ -31,6 +31,9 @@ export interface HeartbeatRecord {
 export interface ShardState {
   targets: Record<string, TargetState>;
   pendingAlerts: string[];
+  /** Staleness watch over the next shard's targets (TD-004), and when that watch started. */
+  staleWatch: StaleWatch;
+  watchSince?: string;
 }
 
 /** Undelivered alert lines kept for retry; the oldest are dropped beyond this. */
@@ -49,12 +52,61 @@ export function isDue(target: Target, now: Date): boolean {
   return !target.sleeps || now.getUTCMinutes() < 5;
 }
 
-export function shardOf(index: number, shards: number): number {
-  return index % shards;
+/**
+ * Shard of a target, from its name only (32-bit FNV-1a). Index-based sharding moved every later
+ * target to the other shard whenever one was inserted (TD-004).
+ */
+export function shardOfName(name: string, shards: number): number {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < name.length; i++) {
+    hash ^= name.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash % shards;
 }
 
 export function targetsForShard(targets: Target[], shard: number, shards: number): Target[] {
-  return targets.filter((_, i) => shardOf(i, shards) === shard);
+  return targets.filter((t) => shardOfName(t.name, shards) === shard);
+}
+
+/** The shard whose targets this shard checks for staleness: a stopped cron cannot report itself. */
+export function watchedShard(shard: number, shards: number): number {
+  return (shard + 1) % shards;
+}
+
+/** One state per target, read from the shard that owns it, whatever other shards still hold. */
+export function mergeShardStates(
+  shardStates: Record<string, TargetState>[],
+  targets: Target[],
+  shards: number,
+): Record<string, TargetState> {
+  const merged: Record<string, TargetState> = {};
+  for (const t of targets) {
+    const state = shardStates[shardOfName(t.name, shards)]?.[t.name];
+    if (state) merged[t.name] = state;
+  }
+  return merged;
+}
+
+/**
+ * Previous state for the targets this shard owns: the newest copy in any shard. A target that
+ * changed shard keeps its real state (an ongoing outage stays down, its recovery is still
+ * reported), and an old copy left behind by an earlier owner always loses.
+ */
+export function newestStates(
+  shardStates: Record<string, TargetState>[],
+  targets: Target[],
+  shard: number,
+  shards: number,
+): Record<string, TargetState> {
+  const seeded: Record<string, TargetState> = {};
+  for (const t of targetsForShard(targets, shard, shards)) {
+    for (const states of shardStates) {
+      const candidate = states[t.name];
+      if (candidate && (!seeded[t.name] || candidate.checkedAt > seeded[t.name].checkedAt)) seeded[t.name] = candidate;
+    }
+  }
+  return seeded;
 }
 
 export interface Transition {
@@ -135,6 +187,61 @@ export function staleHeartbeats(
     // Alert once per missed window, then again every REMINDER_HOURS.
     return !alertedThisWindow || hoursBetween(alerted as string, now) >= REMINDER_HOURS;
   });
+}
+
+/** A target counts as not probed after this long (sleeping services are probed hourly). */
+export const STALE_AFTER_HOURS = { awake: 0.5, sleeping: 2.5 };
+
+/** Per watched target: when it was first seen without any state, and the last stale alert. */
+export type StaleWatch = Record<string, { firstSeen?: string; alertedAt?: string }>;
+
+export function isStale(target: Target, state: TargetState | undefined, now: Date): boolean {
+  return Boolean(state) && hoursBetween((state as TargetState).checkedAt, now) > staleLimit(target);
+}
+
+function staleLimit(target: Target): number {
+  return target.sleeps ? STALE_AFTER_HOURS.sleeping : STALE_AFTER_HOURS.awake;
+}
+
+const latest = (...isos: (string | undefined)[]) =>
+  isos.filter((x): x is string => Boolean(x)).reduce((a, b) => (a > b ? a : b));
+
+/**
+ * Targets whose last probe is too old: a stopped shard cron, or a target that is never due.
+ * Each target gets a full window from `watchSince` (when the watcher started) and, without any
+ * state, from when it was first seen. Alerts once per stale window, then every REMINDER_HOURS.
+ */
+export function staleTargets(
+  targets: Target[],
+  states: Record<string, TargetState>,
+  watch: StaleWatch,
+  now: Date,
+  watchSince?: string,
+): { lines: string[]; watch: StaleWatch } {
+  const nowIso = now.toISOString();
+  const next: StaleWatch = {};
+  const lines: string[] = [];
+  for (const target of targets) {
+    const state = states[target.name];
+    const seen = watch[target.name] ?? {};
+    const firstSeen = state ? undefined : (seen.firstSeen ?? nowIso);
+    const last = latest(state?.checkedAt, firstSeen, watchSince);
+    if (hoursBetween(last, now) <= staleLimit(target)) {
+      if (seen.alertedAt) lines.push(`✅ ${target.name} is being probed again`);
+      if (firstSeen) next[target.name] = { firstSeen };
+      continue;
+    }
+    if (!seen.alertedAt || hoursBetween(seen.alertedAt, now) >= REMINDER_HOURS) {
+      const expected = target.sleeps ? '1h' : '5m';
+      lines.push(
+        `⏰ ${target.name} not probed for ${durationText(last, now)} (last check: ${state?.checkedAt ?? 'never'}; expected every ${expected})`,
+      );
+      next[target.name] = { ...(firstSeen ? { firstSeen } : {}), alertedAt: nowIso };
+    } else {
+      next[target.name] = { ...(firstSeen ? { firstSeen } : {}), alertedAt: seen.alertedAt };
+    }
+  }
+  return { lines, watch: next };
 }
 
 /** Telegram rejects messages over 4096 characters; stay below it with room for the prefix. */

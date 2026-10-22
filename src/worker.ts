@@ -7,11 +7,16 @@ import {
   applyResults,
   chunkAlerts,
   isDue,
+  isStale,
   formatTransitions,
   mapWithConcurrency,
+  mergeShardStates,
+  newestStates,
   queueAlerts,
   staleHeartbeats,
+  staleTargets,
   targetsForShard,
+  watchedShard,
   type CheckResult,
   type HeartbeatRecord,
   type ShardState,
@@ -48,17 +53,22 @@ const hbAlertKey = (job: string) => `${HB_ALERT_PREFIX}${job}:${Date.now()}:${cr
  * it never depends on the shard queue. 3 per run keeps deletes under the free plan's 1,000/day.
  */
 const MAX_PARKED_PER_RUN = 3;
-/** Messages per run: probes (26) + messages must stay under the 50-subrequest limit. */
+/** Messages per run: probes (up to 30 per shard) + messages must stay under the 50-subrequest limit. */
 const MAX_MESSAGES_PER_RUN = 5;
 const PUBLIC_STATUS_CACHE_SECONDS = 60;
 
 async function readShard(env: Env, shard: number): Promise<ShardState> {
   const raw = await env.MONITOR_KV.get<Record<string, unknown>>(stateKey(shard), 'json');
-  if (!raw) return { targets: {}, pendingAlerts: [] };
+  if (!raw) return { targets: {}, pendingAlerts: [], staleWatch: {} };
   // Before v2.1 the value was the bare target map.
-  if (!('targets' in raw)) return { targets: raw as ShardState['targets'], pendingAlerts: [] };
+  if (!('targets' in raw)) return { targets: raw as ShardState['targets'], pendingAlerts: [], staleWatch: {} };
   const state = raw as Partial<ShardState>;
-  return { targets: state.targets ?? {}, pendingAlerts: state.pendingAlerts ?? [] };
+  return {
+    targets: state.targets ?? {},
+    pendingAlerts: state.pendingAlerts ?? [],
+    staleWatch: state.staleWatch ?? {},
+    watchSince: state.watchSince,
+  };
 }
 
 /** Send queued lines in Telegram-sized messages; return the lines that were not delivered. */
@@ -103,14 +113,18 @@ async function handleStatus(request: Request, env: Env): Promise<Response> {
     const cached = await caches.default.match(cacheKey);
     if (cached) return cached;
   }
-  const states: ShardState['targets'] = {};
-  for (let shard = 0; shard < SHARDS; shard++) Object.assign(states, (await readShard(env, shard)).targets);
+  const shardStates: ShardState['targets'][] = [];
+  for (let shard = 0; shard < SHARDS; shard++) shardStates.push((await readShard(env, shard)).targets);
+  // Each target from the shard that owns it: a copy left in another shard must not win (TD-004).
+  const states = mergeShardStates(shardStates, TARGETS, SHARDS);
+  const now = new Date();
   const results = TARGETS.filter((t) => full || t.group === 'own').map((t) => {
     const s = states[t.name];
     return {
       name: t.name,
       group: t.group,
       status: s?.status ?? 'unknown',
+      stale: isStale(t, s, now),
       since: s?.since,
       latency: s?.latency,
       checkedAt: s?.checkedAt,
@@ -180,9 +194,15 @@ async function runShard(env: Env, shard: number, opts: { readOnly: boolean }) {
   const results = await mapWithConcurrency(targets, PROBE_CONCURRENCY, checkTarget);
 
   const previous = await readShard(env, shard);
-  const applied = applyResults(previous.targets, results, now);
-  // Targets not probed this run keep their last state.
-  const state = { ...previous.targets, ...applied.state };
+  // Every shard's state: owned targets are seeded from their newest copy anywhere, so a target that
+  // changed shard keeps its real state and an old copy cannot win (TD-004).
+  const allStates: ShardState['targets'][] = [];
+  for (let s = 0; s < SHARDS; s++) allStates.push(s === shard ? previous.targets : (await readShard(env, s)).targets);
+  const seeded = newestStates(allStates, TARGETS, shard, SHARDS);
+  const applied = applyResults(seeded, results, now);
+  // Only owned targets are written; targets not probed this run keep their seeded state, and copies
+  // of targets this shard no longer owns are dropped.
+  const state = { ...seeded, ...applied.state };
   const { transitions } = applied;
 
   const fresh: string[] = [];
@@ -209,12 +229,21 @@ async function runShard(env: Env, shard: number, opts: { readOnly: boolean }) {
     }
   }
 
+  // Each shard checks that the next shard's targets are still being probed: a stopped cron or a
+  // target that is never due cannot report itself.
+  const watched = watchedShard(shard, SHARDS);
+  const watchedStates = watched === shard ? state : allStates[watched];
+  const watchSince = previous.watchSince ?? now.toISOString();
+  const stale = staleTargets(targetsForShard(TARGETS, watched, SHARDS), watchedStates, previous.staleWatch, now, watchSince);
+  fresh.push(...stale.lines);
+
   // Undelivered alerts from earlier runs go first; they stay queued until Telegram accepts them.
   const queued = queueAlerts(previous.pendingAlerts, fresh);
   const pendingAlerts = queued.length ? await deliver(env, queued) : [];
 
   // The queue is durable before anything that would suppress regenerating an alert is written.
-  await env.MONITOR_KV.put(stateKey(shard), JSON.stringify({ targets: state, pendingAlerts }));
+  const next: ShardState = { targets: state, pendingAlerts, staleWatch: stale.watch, watchSince };
+  await env.MONITOR_KV.put(stateKey(shard), JSON.stringify(next));
   await Promise.all(staleMarks.map((job) => env.MONITOR_KV.put(staleKey(job), now.toISOString())));
 
   // Parked failed-run alerts: each key is deleted only after Telegram accepted that alert.

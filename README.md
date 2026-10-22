@@ -2,7 +2,7 @@
 title: "Solo Empire Cloud Monitor"
 tags: [documentation, infra]
 created: 2026-07-09
-updated: 2026-08-08
+updated: 2026-10-22
 description: "Documentation for Solo Empire Cloud Monitor."
 ---
 
@@ -13,7 +13,8 @@ Cloudflare Worker that monitors your services 24/7 on the **free tier**.
 ## Features
 
 - Checks every production service (own + hosted client services) every 5 minutes. The list
-  lives in `src/targets.ts`; two cron triggers split it into shards so each run stays under the
+  lives in `src/targets.ts`; two cron triggers split it into shards (by a hash of the target name,
+  so adding or removing a target never moves the others) so each run stays under the
   free plan's 50-subrequest limit.
 - The 31 services that use Railway "sleep when idle" are probed once an hour (a 5-minute probe would
   keep them awake and billed all the time), so an outage there is reported within about 2 hours.
@@ -26,7 +27,15 @@ Cloudflare Worker that monitors your services 24/7 on the **free tier**.
 - `/status`: public JSON limited to own services, without URLs or errors. With
   `Authorization: Bearer <MONITOR_TOKEN>` it returns everything, heartbeats included.
 - `/check?shard=0|1` (token-protected) probes one shard right away and reports, read-only: it never writes state or sends alerts.
-- One KV write per shard run (about 576 a day), inside the free plan's 1,000 writes a day.
+- Each shard stores only the targets it owns, and `/status` reads every target from its own shard,
+  with `stale: true` when the last probe is older than 30 minutes (2.5 hours for sleeping services).
+- Each shard also watches the next shard's targets and alerts (`⏰ <name> not probed for …`) when
+  one has not been probed within that window: a stopped cron or a target that is never due cannot
+  report itself. One reminder every 6 hours, and `✅ <name> is being probed again` when it recovers.
+  New targets and a freshly deployed watcher get a full window first.
+  If both shard crons stop, nothing in this Worker can report it; that needs an outside check.
+- One KV write per shard run (about 576 a day), inside the free plan's 1,000 writes a day; each
+  run also reads the other shard's state (one KV read) for seeding and the staleness watch.
 
 ## Deploy
 
