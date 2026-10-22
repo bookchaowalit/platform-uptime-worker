@@ -74,6 +74,29 @@ export function watchedShard(shard: number, shards: number): number {
   return (shard + 1) % shards;
 }
 
+/**
+ * Copies this shard still holds for targets that moved to another shard, kept until the new owner
+ * has an entry at least as recent: otherwise whichever shard runs first after a move would drop the copy
+ * the new owner needs for seeding (deploy race, 2026-10-22). Removed targets are dropped.
+ */
+export function handoverStates(
+  previous: Record<string, TargetState>,
+  shardStates: Record<string, TargetState>[],
+  targets: Target[],
+  shard: number,
+  shards: number,
+): Record<string, TargetState> {
+  const known = new Set(targets.map((t) => t.name));
+  return Object.fromEntries(
+    Object.entries(previous).filter(([name]) => {
+      if (!known.has(name)) return false;
+      const owner = shardOfName(name, shards);
+      const owned = shardStates[owner]?.[name];
+      return owner !== shard && (!owned || owned.checkedAt < previous[name].checkedAt);
+    }),
+  );
+}
+
 /** One state per target, read from the shard that owns it, whatever other shards still hold. */
 export function mergeShardStates(
   shardStates: Record<string, TargetState>[],
@@ -311,15 +334,4 @@ function durationText(fromIso: string | undefined, now: Date): string {
   if (minutes < 60) return `${minutes}m`;
   const hours = Math.floor(minutes / 60);
   return `${hours}h${minutes % 60 ? ` ${minutes % 60}m` : ''}`;
-}
-
-// TD-004 handover (red): stub so the new tests fail on behaviour.
-export function handoverStates(
-  _previous: Record<string, TargetState>,
-  _shardStates: Record<string, TargetState>[],
-  _targets: Target[],
-  _shard: number,
-  _shards: number,
-): Record<string, TargetState> {
-  return {};
 }

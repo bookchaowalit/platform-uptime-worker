@@ -104,6 +104,12 @@ describe('shard state hygiene (TD-004)', () => {
     expect(handoverStates({ [mine.name]: copy }, [{ [mine.name]: up(at(18 * 60 + 5)) }, {}], TARGETS, 1, SHARDS)).toEqual({});
   });
 
+  it('holds the copy while the new owner only has an older entry of its own', () => {
+    // 2026-10-22: shard 0 still had its own health-api entry from 2026-10-21 16:00Z.
+    const copy = up(at(18 * 60));
+    expect(handoverStates({ [mine.name]: copy }, [{ [mine.name]: up(at(0)) }, {}], TARGETS, 1, SHARDS)).toEqual({ [mine.name]: copy });
+  });
+
   it('never holds copies of removed targets or of its own targets', () => {
     expect(handoverStates({ removed: up(at(0)), [theirs.name]: up(at(0)) }, [{}, {}], TARGETS, 1, SHARDS)).toEqual({});
   });
