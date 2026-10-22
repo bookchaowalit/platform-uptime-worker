@@ -312,3 +312,14 @@ function durationText(fromIso: string | undefined, now: Date): string {
   const hours = Math.floor(minutes / 60);
   return `${hours}h${minutes % 60 ? ` ${minutes % 60}m` : ''}`;
 }
+
+// TD-004 handover (red): stub so the new tests fail on behaviour.
+export function handoverStates(
+  _previous: Record<string, TargetState>,
+  _shardStates: Record<string, TargetState>[],
+  _targets: Target[],
+  _shard: number,
+  _shards: number,
+): Record<string, TargetState> {
+  return {};
+}
