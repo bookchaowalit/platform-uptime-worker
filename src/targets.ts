@@ -37,6 +37,10 @@ const ALL_TARGETS: Target[] = [
   { name: 'identity-api', url: railway('identity-api-production-fad1'), group: 'own' },
   { name: 'ai-gateway', url: 'https://api.bookchaowalit.com/healthz', group: 'own' },
   { name: 'checkin-worker', url: 'https://solo-empire-checkin.bookchaowalit.workers.dev/health', group: 'own' },
+  // Signed inbound webhooks (platform-webhooks-worker, Stripe receiver; live 2026-10-23).
+  { name: 'hooks-worker', url: 'https://hooks.bookchaowalit.com/healthz', group: 'own' },
+  // Remote MCP tool hub (platform-mcp-remote-worker).
+  { name: 'mcp-remote', url: 'https://solo-empire-mcp-remote.bookchaowalit.workers.dev/healthz', group: 'own' },
   { name: 'accounts-api', url: railway('accounts-api-production-cfee'), group: 'own' },
   { name: 'accounts-metadata-api', url: railway('accounts-metadata-api-production'), group: 'own' },
   { name: 'automation-api', url: railway('automation-api-production-af8e'), group: 'own' },
@@ -121,6 +125,9 @@ export const HEARTBEATS: HeartbeatSpec[] = [
   // Job discovery capture + R2 ingest (career-job-scraper scheduled-capture workflow, every 6 h).
   // 13 h = one missed or delayed GitHub schedule run plus an hour before the alert.
   { job: 'job-capture', maxAgeHours: 13 },
+  // News capture + R2 replay (content-news-scraper Railway cron `news-capture`, every 2 h, D6).
+  // 5 h = two missed runs plus an hour.
+  { job: 'news-capture', maxAgeHours: 5 },
   // Evening check-in (life-checkin-worker SPEC-002): after the 21:30 prompt the Worker checks its
   // webhook and reports. 25 h = one daily run plus an hour; ok:false alerts at once.
   { job: 'checkin-daily', maxAgeHours: 25 },

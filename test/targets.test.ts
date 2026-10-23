@@ -17,6 +17,13 @@ describe('TARGETS', () => {
     expect(new Set(urls).size).toBe(urls.length);
   });
 
+  it('probes the webhook receiver and the remote MCP worker on their health routes', () => {
+    expect(TARGETS.find((t) => t.name === 'hooks-worker')?.url).toBe('https://hooks.bookchaowalit.com/healthz');
+    expect(TARGETS.find((t) => t.name === 'mcp-remote')?.url).toBe(
+      'https://solo-empire-mcp-remote.bookchaowalit.workers.dev/healthz',
+    );
+  });
+
   it('uses only the own and client groups', () => {
     for (const t of TARGETS) expect(['own', 'client']).toContain(t.group);
     expect(TARGETS.some((t) => t.group === 'own')).toBe(true);
@@ -105,6 +112,10 @@ describe('HEARTBEATS', () => {
 
   it('watches the 6-hourly job capture with room for one missed run', () => {
     expect(HEARTBEATS.find((h) => h.job === 'job-capture')?.maxAgeHours).toBe(13);
+  });
+
+  it('watches the 2-hourly news capture (Railway cron, owner decision D6) with room for two missed runs', () => {
+    expect(HEARTBEATS.find((h) => h.job === 'news-capture')?.maxAgeHours).toBe(5);
   });
 
   it('watches the daily check-in run (life-checkin-worker SPEC-002 AC-25)', () => {
