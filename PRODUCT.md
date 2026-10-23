@@ -25,7 +25,8 @@ status page only shows own services, without URLs or errors.
   `GET /check?shard=0|1` (token, read-only probe) and an HTML status page at `/`.
 - Sentry error reporting (`src/sentry.ts`, `@sentry/cloudflare`): errors only, no tracing,
   breadcrumbs or PII, allowlist scrub in `beforeSend` (also redacts the Telegram bot token). It is
-  switched on only by a `SENTRY_DSN` Worker secret; without it the Sentry code never runs. The
+  switched on only by a `SENTRY_DSN` Worker secret (set 2026-10-23, Sentry project
+  `personal-yu0/platform-uptime-worker`); without it the Sentry code never runs. The
   scrub is a copy of the shared reference `~/work/b-tier-b/sentry-ref/sentry.ts`, owned and adapted
   here.
 - Tests: Vitest, 4 files (`test/monitor.test.ts`, `targets.test.ts`, `worker.test.ts`,
@@ -45,7 +46,6 @@ does not deploy. Live at https://solo-empire-monitor.bookchaowalit.workers.dev.
 - Public `/status` cache misses read KV; a flood of uncached requests could use up the free plan's
   daily KV reads (see README "Known limits").
 - `monitor.bookchaowalit.com` points at Vercel, not at this Worker.
-- Sentry stays off until the owner sets the `SENTRY_DSN` Worker secret.
 
 ## Status
 
