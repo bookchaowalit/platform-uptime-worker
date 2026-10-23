@@ -2,7 +2,7 @@
 title: "Solo Empire Cloud Monitor"
 tags: [documentation, infra]
 created: 2026-07-09
-updated: 2026-10-22
+updated: 2026-10-23
 description: "Documentation for Solo Empire Cloud Monitor."
 ---
 
@@ -53,9 +53,24 @@ Worker secrets (`wrangler secret put <NAME>`, value on stdin):
 |---|---|
 | `MONITOR_TOKEN`, `HEARTBEAT_TOKEN` | `/monitoring` |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | `/telegram` (`TELEGRAM_NOTI_BOT_TOKEN`, `TELEGRAM_NOTI_CHAT_ID`: the `book_noti_bot` that notifications-dispatcher also uses) |
+| `SENTRY_DSN` (optional) | Sentry project in org `personal-yu0`. Unset = Sentry off, the Worker runs exactly as without it. |
 
 `/status` is public but limited to own services. `/check` and the full `/status` need
 `Authorization: Bearer <MONITOR_TOKEN>`; `/heartbeat/<job>` needs `HEARTBEAT_TOKEN`.
+
+## Error reporting (Sentry)
+
+`src/sentry.ts` wraps the handler with `@sentry/cloudflare` only when the `SENTRY_DSN` secret is set.
+Errors only: no tracing, no trace headers, no breadcrumbs, `dataCollection` all off (the SDK v11 form
+of `sendDefaultPii: false`) and an allowlist `beforeSend` scrub that also redacts the Telegram bot
+token. The scrub is copied from the shared reference `~/work/b-tier-b/sentry-ref/sentry.ts`; this
+repo owns its copy. `compatibility_flags = ["nodejs_als"]` in `wrangler.toml` is needed because the
+SDK imports `node:async_hooks`.
+
+## Tests
+
+`npm test` (Vitest, offline: in-memory KV and stubbed fetch) and `npm run typecheck`.
+`npx wrangler deploy --dry-run --outdir dist` bundles the Worker without uploading.
 
 ## Usage
 
