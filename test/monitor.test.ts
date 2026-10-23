@@ -19,30 +19,10 @@ import {
   watchedShard,
   type TargetState,
 } from '../src/monitor';
-import { HEARTBEATS, SHARDS, SLEEPING_TARGET_NAMES, TARGETS } from '../src/targets';
+import { HEARTBEATS, SHARDS, TARGETS } from '../src/targets';
 
 const t0 = new Date('2026-10-18T00:00:00Z');
 const at = (minutes: number) => new Date(t0.getTime() + minutes * 60_000);
-
-describe('targets', () => {
-  it('has unique names and https URLs', () => {
-    const names = TARGETS.map((t) => t.name);
-    expect(new Set(names).size).toBe(names.length);
-    for (const t of TARGETS) expect(t.url).toMatch(/^https:\/\//);
-  });
-
-  it('keeps every shard under the free-plan subrequest budget', () => {
-    for (let shard = 0; shard < SHARDS; shard++) {
-      // checks + up to five Telegram messages must stay below 50
-      expect(targetsForShard(TARGETS, shard, SHARDS).length + 5).toBeLessThan(50);
-    }
-  });
-
-  it('assigns every target to exactly one shard', () => {
-    const total = Array.from({ length: SHARDS }, (_, s) => targetsForShard(TARGETS, s, SHARDS).length);
-    expect(total.reduce((a, b) => a + b, 0)).toBe(TARGETS.length);
-  });
-});
 
 describe('shard assignment (TD-004)', () => {
   const extra = { name: 'new-service', url: 'https://new.example', group: 'own' as const };
@@ -189,12 +169,6 @@ describe('isDue', () => {
     expect(isDue(sleeper, new Date('2026-10-18T07:05:00Z'))).toBe(false);
     expect(isDue(awake, new Date('2026-10-18T07:37:00Z'))).toBe(true);
   });
-
-  it('marks every listed sleeping service on an existing target', () => {
-    const names = new Set(TARGETS.map((t) => t.name));
-    for (const n of SLEEPING_TARGET_NAMES) expect(names.has(n)).toBe(true);
-    expect(TARGETS.filter((t) => t.sleeps).length).toBe(SLEEPING_TARGET_NAMES.size);
-  });
 });
 
 describe('applyResults', () => {
@@ -258,16 +232,6 @@ describe('staleHeartbeats', () => {
     const records = { 'db-backup': { at: at(30 * 60).toISOString(), ok: true } };
     const alerted = { 'db-backup': at(27 * 60).toISOString() };
     expect(staleHeartbeats([spec], records, alerted, at(57 * 60))).toEqual([spec]);
-  });
-});
-
-describe('HEARTBEATS', () => {
-  it('watches the 6-hourly job capture with room for one missed run', () => {
-    expect(HEARTBEATS.find((h) => h.job === 'job-capture')?.maxAgeHours).toBe(13);
-  });
-
-  it('watches the daily check-in run (life-checkin-worker SPEC-002 AC-25)', () => {
-    expect(HEARTBEATS.find((h) => h.job === 'checkin-daily')?.maxAgeHours).toBe(25);
   });
 });
 

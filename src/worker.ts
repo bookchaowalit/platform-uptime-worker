@@ -23,6 +23,7 @@ import {
   type ShardState,
 } from './monitor';
 import { HEARTBEATS, SHARDS, TARGETS, type Target } from './targets';
+import { withOptionalSentry, type WorkerHandler } from './sentry';
 
 export interface Env {
   MONITOR_KV: KVNamespace;
@@ -30,6 +31,8 @@ export interface Env {
   HEARTBEAT_TOKEN?: string;
   TELEGRAM_BOT_TOKEN?: string;
   TELEGRAM_CHAT_ID?: string;
+  /** Sentry error reporting; unset = Sentry stays off and the handler runs exactly as before. */
+  SENTRY_DSN?: string;
 }
 
 // Cron expressions in wrangler.toml, in shard order.
@@ -83,7 +86,7 @@ async function deliver(env: Env, lines: string[]): Promise<string[]> {
   return [];
 }
 
-export default {
+const handler: WorkerHandler<Env> = {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
 
@@ -99,6 +102,8 @@ export default {
     ctx.waitUntil(runShard(env, shard, { readOnly: false }));
   },
 };
+
+export default withOptionalSentry(handler);
 
 function authorized(request: Request, token: string | undefined): boolean {
   const expected = token?.trim();

@@ -1,6 +1,8 @@
 name = "solo-empire-monitor"
 main = "src/worker.ts"
 compatibility_date = "2026-10-01"
+# @sentry/cloudflare imports node:async_hooks (AsyncLocalStorage); nodejs_als exposes only that module.
+compatibility_flags = ["nodejs_als"]
 account_id = "98e152b05e32b75612ee03e955913ee2"
 
 # Public at https://solo-empire-monitor.bookchaowalit.workers.dev
