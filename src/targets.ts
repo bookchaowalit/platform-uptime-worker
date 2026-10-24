@@ -131,6 +131,9 @@ export const HEARTBEATS: HeartbeatSpec[] = [
   // Evening check-in (life-checkin-worker SPEC-002): after the 21:30 prompt the Worker checks its
   // webhook and reports. 25 h = one daily run plus an hour; ok:false alerts at once.
   { job: 'checkin-daily', maxAgeHours: 25 },
+  // Backlog sync (platform-empire Railway cron `backlog-sync`, hourly at :05, ADR-0006).
+  // 3 h = two missed runs plus an hour.
+  { job: 'backlog-sync', maxAgeHours: 3 },
 ]);
 
 // Two cron triggers split the targets (by a hash of the name, so adding a target never moves the
