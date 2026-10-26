@@ -134,6 +134,9 @@ export const HEARTBEATS: HeartbeatSpec[] = [
   // Backlog sync (platform-empire Railway cron `backlog-sync`, hourly at :05, ADR-0006).
   // 3 h = two missed runs plus an hour.
   { job: 'backlog-sync', maxAgeHours: 3 },
+  // Daily Thai digest of the Chief Findings sheet (data-lake-pipelines Railway cron
+  // `sheet-summaries`, 12:00 UTC). 26 h = one daily run plus two hours; ok:false alerts at once.
+  { job: 'sheet-summaries', maxAgeHours: 26 },
 ]);
 
 // Two cron triggers split the targets (by a hash of the name, so adding a target never moves the

@@ -121,4 +121,8 @@ describe('HEARTBEATS', () => {
   it('watches the daily check-in run (life-checkin-worker SPEC-002 AC-25)', () => {
     expect(HEARTBEATS.find((h) => h.job === 'checkin-daily')?.maxAgeHours).toBe(25);
   });
+
+  it('watches the daily sheet summaries run (data-lake-pipelines Railway cron, 12:00 UTC)', () => {
+    expect(HEARTBEATS.find((h) => h.job === 'sheet-summaries')?.maxAgeHours).toBe(26);
+  });
 });
