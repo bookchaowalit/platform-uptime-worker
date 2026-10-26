@@ -16,5 +16,8 @@
   },
   "dependencies": {
     "@sentry/cloudflare": "11.8.0"
+  },
+  "overrides": {
+    "undici": "7.30.1"
   }
 }
