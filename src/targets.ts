@@ -137,6 +137,9 @@ export const HEARTBEATS: HeartbeatSpec[] = [
   // Daily Thai digest of the Chief Findings sheet (data-lake-pipelines Railway cron
   // `sheet-summaries`, 12:00 UTC). 26 h = one daily run plus two hours; ok:false alerts at once.
   { job: 'sheet-summaries', maxAgeHours: 26 },
+  // Registry and metadata-catalog export into the R2 lake (data-lake-pipelines Railway cron
+  // `registry-export`, 23:40 UTC). 26 h = one daily run plus two hours; ok:false alerts at once.
+  { job: 'registry-export', maxAgeHours: 26 },
 ]);
 
 // Two cron triggers split the targets (by a hash of the name, so adding a target never moves the

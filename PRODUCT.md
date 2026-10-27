@@ -20,7 +20,7 @@ status page only shows own services, without URLs or errors.
 - Each shard checks that the other shard's targets are still being probed (stopped-cron watch).
 - Heartbeats: `POST /heartbeat/<job>` with `HEARTBEAT_TOKEN` for `db-backup` (and one per hosted
   client database), `token-rotate`, `restore-drill`, `job-capture`, `news-capture`, `checkin-daily`,
-  `backlog-sync` and `sheet-summaries`. A failed run alerts at once; a missed window alerts too.
+  `backlog-sync`, `sheet-summaries` and `registry-export`. A failed run alerts at once; a missed window alerts too.
 - `GET /status` (public, own services, edge-cached 60 s; full view with `MONITOR_TOKEN`),
   `GET /check?shard=0|1` (token, read-only probe) and an HTML status page at `/`.
 - Sentry error reporting (`src/sentry.ts`, `@sentry/cloudflare`): errors only, no tracing,
