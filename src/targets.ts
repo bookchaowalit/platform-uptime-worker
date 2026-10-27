@@ -63,6 +63,8 @@ const ALL_TARGETS: Target[] = [
   { name: 'liabilities-api', url: railway('liabilities-api-production'), group: 'own' },
   { name: 'subscriptions-api', url: railway('subscriptions-api-production-b1d4'), group: 'own' },
   { name: 'tax-api', url: railway('tax-api-production-57f6'), group: 'own' },
+  // Sales
+  { name: 'offers-api', url: railway('offers-api-production'), group: 'own' },
   // Life
   { name: 'goals-api', url: railway('goals-api-production-c16e'), group: 'own' },
   { name: 'habits-api', url: railway('habits-api-production-e516'), group: 'own' },
