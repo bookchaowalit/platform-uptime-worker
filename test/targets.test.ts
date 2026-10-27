@@ -125,4 +125,8 @@ describe('HEARTBEATS', () => {
   it('watches the daily sheet summaries run (data-lake-pipelines Railway cron, 12:00 UTC)', () => {
     expect(HEARTBEATS.find((h) => h.job === 'sheet-summaries')?.maxAgeHours).toBe(26);
   });
+
+  it('watches the daily registry export run (data-lake-pipelines Railway cron, 23:40 UTC)', () => {
+    expect(HEARTBEATS.find((h) => h.job === 'registry-export')?.maxAgeHours).toBe(26);
+  });
 });
