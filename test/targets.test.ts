@@ -130,3 +130,22 @@ describe('HEARTBEATS', () => {
     expect(HEARTBEATS.find((h) => h.job === 'registry-export')?.maxAgeHours).toBe(26);
   });
 });
+
+describe('Book Platform services (deployed 2026-10-29)', () => {
+  const hosts: Record<string, string> = {
+    'communication-api': 'communication-api-production',
+    'media-api': 'media-api-production-91a5',
+    'data-api': 'data-api-production-bf8a',
+    'workflow-api': 'workflow-api-production-63de',
+    'commerce-api': 'commerce-api-production-9b24',
+    'logistics-api': 'logistics-api-production-d3bb',
+    'developer-api': 'developer-api-production-2fad',
+  };
+
+  it('probes each one on /readyz, hourly because it sleeps when idle', () => {
+    for (const [name, host] of Object.entries(hosts)) {
+      expect(TARGETS.find((t) => t.name === name)?.url).toBe(`https://${host}.up.railway.app/readyz`);
+      expect(SLEEPING_TARGET_NAMES).toContain(name);
+    }
+  });
+});

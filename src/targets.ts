@@ -29,6 +29,8 @@ const SLEEPS = new Set([
   'roles-skills-api', 'operating-api', 'opportunities-api', 'learning-api', 'projects-api',
   'content-api', 'radar-api', 'accounts-api', 'accounts-metadata-api', 'automation-api',
   'intake-api', 'notifications-api', 'integrations-api', 'knowledge-api', 'saas-catalog-api',
+  'communication-api', 'media-api', 'data-api', 'workflow-api', 'commerce-api', 'logistics-api',
+  'developer-api',
 ]);
 
 const ALL_TARGETS: Target[] = [
@@ -65,6 +67,14 @@ const ALL_TARGETS: Target[] = [
   { name: 'tax-api', url: railway('tax-api-production-57f6'), group: 'own' },
   // Sales
   { name: 'offers-api', url: railway('offers-api-production'), group: 'own' },
+  // Book Platform services (bookchaowalit-backend/platform-*), deployed 2026-10-29
+  { name: 'communication-api', url: railway('communication-api-production', '/readyz'), group: 'own' },
+  { name: 'media-api', url: railway('media-api-production-91a5', '/readyz'), group: 'own' },
+  { name: 'data-api', url: railway('data-api-production-bf8a', '/readyz'), group: 'own' },
+  { name: 'workflow-api', url: railway('workflow-api-production-63de', '/readyz'), group: 'own' },
+  { name: 'commerce-api', url: railway('commerce-api-production-9b24', '/readyz'), group: 'own' },
+  { name: 'logistics-api', url: railway('logistics-api-production-d3bb', '/readyz'), group: 'own' },
+  { name: 'developer-api', url: railway('developer-api-production-2fad', '/readyz'), group: 'own' },
   // Life
   { name: 'goals-api', url: railway('goals-api-production-c16e'), group: 'own' },
   { name: 'habits-api', url: railway('habits-api-production-e516'), group: 'own' },
