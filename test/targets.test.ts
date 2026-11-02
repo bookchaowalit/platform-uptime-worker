@@ -129,6 +129,10 @@ describe('HEARTBEATS', () => {
   it('watches the daily registry export run (data-lake-pipelines Railway cron, 23:40 UTC)', () => {
     expect(HEARTBEATS.find((h) => h.job === 'registry-export')?.maxAgeHours).toBe(26);
   });
+
+  it('watches the 2-hourly jobs marts run (data-lake-pipelines jobs-marts workflow) with room for two missed runs', () => {
+    expect(HEARTBEATS.find((h) => h.job === 'jobs-marts')?.maxAgeHours).toBe(5);
+  });
 });
 
 describe('Book Platform services (deployed 2026-10-29, security 2026-11-02)', () => {

@@ -153,6 +153,9 @@ export const HEARTBEATS: HeartbeatSpec[] = [
   // Registry and metadata-catalog export into the R2 lake (data-lake-pipelines Railway cron
   // `registry-export`, 23:40 UTC). 26 h = one daily run plus two hours; ok:false alerts at once.
   { job: 'registry-export', maxAgeHours: 26 },
+  // Jobs Silver → dbt marts → Gold on the R2 lake (data-lake-pipelines `jobs-marts` workflow,
+  // every 2 h at :47). 5 h = two missed runs plus an hour; ok:false (failed or stale) alerts at once.
+  { job: 'jobs-marts', maxAgeHours: 5 },
 ]);
 
 // Two cron triggers split the targets (by a hash of the name, so adding a target never moves the
