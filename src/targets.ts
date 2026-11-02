@@ -30,7 +30,7 @@ const SLEEPS = new Set([
   'content-api', 'radar-api', 'accounts-api', 'accounts-metadata-api', 'automation-api',
   'intake-api', 'notifications-api', 'integrations-api', 'knowledge-api', 'saas-catalog-api',
   'communication-api', 'media-api', 'data-api', 'workflow-api', 'commerce-api', 'logistics-api',
-  'developer-api',
+  'developer-api', 'security-api',
 ]);
 
 const ALL_TARGETS: Target[] = [
@@ -75,6 +75,7 @@ const ALL_TARGETS: Target[] = [
   { name: 'commerce-api', url: railway('commerce-api-production-9b24', '/readyz'), group: 'own' },
   { name: 'logistics-api', url: railway('logistics-api-production-d3bb', '/readyz'), group: 'own' },
   { name: 'developer-api', url: railway('developer-api-production-2fad', '/readyz'), group: 'own' },
+  { name: 'security-api', url: railway('security-api-production-f817', '/readyz'), group: 'own' }, // 2026-11-02
   // Life
   { name: 'goals-api', url: railway('goals-api-production-c16e'), group: 'own' },
   { name: 'habits-api', url: railway('habits-api-production-e516'), group: 'own' },
