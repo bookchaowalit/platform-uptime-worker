@@ -131,7 +131,7 @@ describe('HEARTBEATS', () => {
   });
 });
 
-describe('Book Platform services (deployed 2026-10-29)', () => {
+describe('Book Platform services (deployed 2026-10-29, security 2026-11-02)', () => {
   const hosts: Record<string, string> = {
     'communication-api': 'communication-api-production',
     'media-api': 'media-api-production-91a5',
@@ -140,6 +140,7 @@ describe('Book Platform services (deployed 2026-10-29)', () => {
     'commerce-api': 'commerce-api-production-9b24',
     'logistics-api': 'logistics-api-production-d3bb',
     'developer-api': 'developer-api-production-2fad',
+    'security-api': 'security-api-production-f817',
   };
 
   it('probes each one on /readyz, hourly because it sleeps when idle', () => {
