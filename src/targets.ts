@@ -156,6 +156,9 @@ export const HEARTBEATS: HeartbeatSpec[] = [
   // Jobs Silver → dbt marts → Gold on the R2 lake (data-lake-pipelines `jobs-marts` workflow,
   // every 2 h at :47). 5 h = two missed runs plus an hour; ok:false (failed or stale) alerts at once.
   { job: 'jobs-marts', maxAgeHours: 5 },
+  // Security posture monitor (platform-posture-monitor `posture` workflow, every 6 h at :23).
+  // 13 h = one missed or delayed GitHub schedule run plus an hour; ok:false alerts at once.
+  { job: 'posture-monitor', maxAgeHours: 13 },
 ]);
 
 // Two cron triggers split the targets (by a hash of the name, so adding a target never moves the

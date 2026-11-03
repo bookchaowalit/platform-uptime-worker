@@ -133,6 +133,10 @@ describe('HEARTBEATS', () => {
   it('watches the 2-hourly jobs marts run (data-lake-pipelines jobs-marts workflow) with room for two missed runs', () => {
     expect(HEARTBEATS.find((h) => h.job === 'jobs-marts')?.maxAgeHours).toBe(5);
   });
+
+  it('watches the 6-hourly security posture monitor (platform-posture-monitor workflow) with room for one missed run', () => {
+    expect(HEARTBEATS.find((h) => h.job === 'posture-monitor')?.maxAgeHours).toBe(13);
+  });
 });
 
 describe('Book Platform services (deployed 2026-10-29, security 2026-11-02)', () => {
