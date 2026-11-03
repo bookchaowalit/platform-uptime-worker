@@ -161,6 +161,10 @@ export const HEARTBEATS: HeartbeatSpec[] = [
   // Jobs Silver → dbt marts → Gold on the R2 lake (data-lake-pipelines `jobs-marts` workflow,
   // every 2 h at :47). 5 h = two missed runs plus an hour; ok:false (failed or stale) alerts at once.
   { job: 'jobs-marts', maxAgeHours: 5 },
+  // Remote job leads (sales-crm `job-radar` Railway cron, hourly at :07): feeds → lake → job_leads
+  // → Telegram. 3 h = two missed runs plus an hour; ok:false (feeds or assist failed) alerts at once.
+  // Added after it ran nothing from 2026-10-29 to 11-03 without anyone noticing.
+  { job: 'job-radar', maxAgeHours: 3 },
   // Security posture monitor (platform-posture-monitor `posture` workflow, every 6 h at :23).
   // 13 h = one missed or delayed GitHub schedule run plus an hour; ok:false alerts at once.
   { job: 'posture-monitor', maxAgeHours: 13 },
