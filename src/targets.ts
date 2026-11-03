@@ -44,6 +44,8 @@ const ALL_TARGETS: Target[] = [
   { name: 'checkin-worker', url: 'https://solo-empire-checkin.bookchaowalit.workers.dev/health', group: 'own' },
   // Signed inbound webhooks (platform-webhooks-worker, Stripe receiver; live 2026-10-23).
   { name: 'hooks-worker', url: 'https://hooks.bookchaowalit.com/healthz', group: 'own' },
+  // Job queue Worker (platform-jobs-worker, ADR-0008); /healthz answers 503 while jobs-dlq holds parked jobs.
+  { name: 'jobs-worker', url: 'https://solo-empire-jobs.bookchaowalit.workers.dev/healthz', group: 'own' },
   // Remote MCP tool hub (platform-mcp-remote-worker).
   { name: 'mcp-remote', url: 'https://solo-empire-mcp-remote.bookchaowalit.workers.dev/healthz', group: 'own' },
   { name: 'accounts-api', url: railway('accounts-api-production-cfee'), group: 'own' },
