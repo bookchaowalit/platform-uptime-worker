@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { shardOfName, targetsForShard } from '../src/monitor';
-import { HEARTBEATS, SHARDS, SLEEPING_TARGET_NAMES, TARGETS } from '../src/targets';
+import { HEARTBEATS, SHARDS, SLEEPING_TARGET_NAMES, TARGETS, RAILWAY_CUSTOM_DOMAINS } from '../src/targets';
 
 // Invariants of the monitored list in src/targets.ts. A bad edit there (duplicate name, http URL,
 // a shard over the subrequest budget) would break live monitoring, so it fails here first.
@@ -48,7 +48,10 @@ describe('TARGETS', () => {
   });
 
   it('only marks Railway services as sleeping (Railway sleepApplication)', () => {
-    for (const t of TARGETS.filter((t) => t.sleeps)) expect(t.url).toContain('.up.railway.app');
+    for (const t of TARGETS.filter((t) => t.sleeps)) {
+      const onRailway = t.url.includes('.up.railway.app') || RAILWAY_CUSTOM_DOMAINS.some((d) => t.url.includes(`//${d}/`));
+      expect(onRailway, t.name).toBe(true);
+    }
   });
 });
 

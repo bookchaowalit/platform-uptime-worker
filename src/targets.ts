@@ -22,6 +22,9 @@ const railway = (host: string, path = '/health') => `https://${host}.up.railway.
 // service to sleep after about 10 minutes without traffic; a probe every 5 minutes would keep all
 // of them awake (and billed) around the clock. They are probed once an hour instead: a check wakes
 // the service, which then sleeps again.
+// Railway services that sleep but are reached on a custom domain instead of *.up.railway.app.
+export const RAILWAY_CUSTOM_DOMAINS = ['gateway.bookchaowalit.com'];
+
 const SLEEPS = new Set([
   'finance-accounts-api', 'transactions-api', 'budgets-api', 'cash-flow-api', 'reconciliations-api',
   'business-assets-api', 'investments-api', 'liabilities-api', 'subscriptions-api', 'tax-api',
@@ -30,7 +33,7 @@ const SLEEPS = new Set([
   'content-api', 'radar-api', 'accounts-api', 'accounts-metadata-api', 'automation-api',
   'intake-api', 'notifications-api', 'integrations-api', 'knowledge-api', 'saas-catalog-api',
   'communication-api', 'media-api', 'data-api', 'workflow-api', 'commerce-api', 'logistics-api',
-  'developer-api', 'security-api',
+  'developer-api', 'security-api', 'api-gateway',
 ]);
 
 const ALL_TARGETS: Target[] = [
@@ -76,6 +79,8 @@ const ALL_TARGETS: Target[] = [
   { name: 'logistics-api', url: railway('logistics-api-production-d3bb', '/readyz'), group: 'own' },
   { name: 'developer-api', url: railway('developer-api-production-2fad', '/readyz'), group: 'own' },
   { name: 'security-api', url: railway('security-api-production-f817', '/readyz'), group: 'own' }, // 2026-11-02
+  // Edge gateway (platform-api-gateway SPEC-001) behind the Cloudflare proxy; /healthz skips the edge lock.
+  { name: 'api-gateway', url: 'https://gateway.bookchaowalit.com/healthz', group: 'own' }, // 2026-11-03
   // Life
   { name: 'goals-api', url: railway('goals-api-production-c16e'), group: 'own' },
   { name: 'habits-api', url: railway('habits-api-production-e516'), group: 'own' },
