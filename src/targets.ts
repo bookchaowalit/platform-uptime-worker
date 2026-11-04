@@ -183,6 +183,9 @@ export const HEARTBEATS: HeartbeatSpec[] = [
   // Security posture monitor (platform-posture-monitor `posture` workflow, every 6 h at :23).
   // 13 h = one missed or delayed GitHub schedule run plus an hour; ok:false alerts at once.
   { job: 'posture-monitor', maxAgeHours: 13 },
+  // Dependency vulnerability digest (platform-vuln-digest `digest` workflow, jobs queue daily at 01:17 UTC).
+  // 30 h = one missed day plus six hours; ok:false (sweep, R2 or Telegram failed) alerts at once.
+  { job: 'vuln-digest', maxAgeHours: 30 },
 ]);
 
 // Two cron triggers split the targets (by a hash of the name, so adding a target never moves the
