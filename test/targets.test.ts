@@ -141,6 +141,10 @@ describe('HEARTBEATS', () => {
     expect(HEARTBEATS.find((h) => h.job === 'job-radar')?.maxAgeHours).toBe(3);
   });
 
+  it('watches the hourly knowledge outbox relay with room for two missed runs', () => {
+    expect(HEARTBEATS.find((h) => h.job === 'knowledge-relay')?.maxAgeHours).toBe(3);
+  });
+
   it('watches the hourly event-plane sink (data-lake-pipelines event-sink workflow) with room for two missed runs', () => {
     expect(HEARTBEATS.find((h) => h.job === 'event-sink')?.maxAgeHours).toBe(3);
   });
