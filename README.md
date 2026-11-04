@@ -74,7 +74,7 @@ SDK imports `node:async_hooks`.
 
 ## Usage
 
-- **View status page:** `https://monitor.bookchaowalit.com` (also `https://solo-empire-monitor.bookchaowalit.workers.dev`)
+- **View status page:** `https://monitor.bookchaowalit.com` (the `workers.dev` route is off since 2026-11-04)
 - **Get JSON status:** `https://monitor.bookchaowalit.com/status`
 - **Manual check:** `curl -H "Authorization: Bearer $MONITOR_TOKEN" https://monitor.bookchaowalit.com/check`
 
@@ -85,7 +85,7 @@ a day (limit 100,000) and about 576 KV writes a day (limit 1,000).
 
 ## ที่มา
 
-ย้ายมาจาก `solo-empire/infra/cloud-monitor/` (2026-10-11) พร้อมประวัติ git. Worker ที่ deploy: `solo-empire-monitor` ที่ https://solo-empire-monitor.bookchaowalit.workers.dev และ custom domain `monitor.bookchaowalit.com` (ผูกเป็น Worker custom domain 2026-11-04; ก่อนหน้านี้ wildcard `*.bookchaowalit.com` ชี้ไป Vercel ทำให้ TLS พัง)
+ย้ายมาจาก `solo-empire/infra/cloud-monitor/` (2026-10-11) พร้อมประวัติ git. Worker ที่ deploy: `solo-empire-monitor` ที่ custom domain `monitor.bookchaowalit.com` (ผูกเป็น Worker custom domain 2026-11-04; ก่อนหน้านี้ wildcard `*.bookchaowalit.com` ชี้ไป Vercel ทำให้ TLS พัง)
 
 ## Known limits (accepted)
 

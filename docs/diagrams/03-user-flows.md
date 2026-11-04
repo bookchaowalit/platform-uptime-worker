@@ -6,7 +6,7 @@ Worker นี้มี "หน้า" เดียวคือ HTML status page 
 
 ```mermaid
 flowchart TD
-    A["Open https://solo-empire-monitor.bookchaowalit.workers.dev/"] --> B["Worker returns inline STATUS_PAGE HTML"]
+    A["Open https://monitor.bookchaowalit.com/"] --> B["Worker returns inline STATUS_PAGE HTML"]
     B --> C["Browser script fetch /status"]
     C --> D{"Edge cache hit?"}
     D -- yes --> E["Cached JSON (max-age 60)"]

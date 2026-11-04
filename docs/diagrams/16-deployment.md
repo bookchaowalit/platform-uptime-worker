@@ -11,7 +11,7 @@ flowchart TB
     end
     subgraph CF["Cloudflare account (Workers free plan)"]
         WK["Worker solo-empire-monitor, main = src/worker.ts, compatibility_date 2026-10-01, flags nodejs_als"]
-        RT["Route: solo-empire-monitor.bookchaowalit.workers.dev (workers_dev = true)"]
+        RT["Route: monitor.bookchaowalit.com (custom domain; workers_dev = false)"]
         TR["Cron triggers: */5 * * * * and 2-59/5 * * * *"]
         KV[("KV binding MONITOR_KV")]
         SC["Secrets: MONITOR_TOKEN, HEARTBEAT_TOKEN, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, SENTRY_DSN"]
@@ -30,7 +30,7 @@ Sources: `wrangler.toml`, `package.json`, `README.md` (Deploy, secrets, ที�
 |---|---|
 | Hosting | Cloudflare Workers free plan |
 | Environments | production เท่านั้น (ไม่มี `[env.*]` ใน `wrangler.toml`) |
-| Custom domain | ไม่มี; มีแค่ `*.workers.dev` |
+| Custom domain | `monitor.bookchaowalit.com` (2026-11-04); `workers.dev` ปิด |
 | Bindings | KV `MONITOR_KV` อย่างเดียว (ไม่มี D1 / R2 / DO / Queue) |
 | Deploy trigger | manual; ไม่ใช่ push to `main` |
 | Deployment history | `wrangler deployments list` (ล่าสุด 10 ครั้ง, `source: wrangler`) |

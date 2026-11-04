@@ -5,10 +5,9 @@ compatibility_date = "2026-10-01"
 compatibility_flags = ["nodejs_als"]
 account_id = "98e152b05e32b75612ee03e955913ee2"
 
-# Public at https://monitor.bookchaowalit.com (Worker custom domain, 2026-11-04) and
-# https://solo-empire-monitor.bookchaowalit.workers.dev. The custom domain overrides the
-# *.bookchaowalit.com wildcard CNAME to Vercel.
-workers_dev = true
+# Public at https://monitor.bookchaowalit.com (Worker custom domain, 2026-11-04). The workers.dev
+# route is off since 2026-11-04 (network NET-10): every heartbeat and status caller uses the custom domain.
+workers_dev = false
 routes = [{ pattern = "monitor.bookchaowalit.com", custom_domain = true }]
 
 # Two cron triggers, one per shard (see SHARD_CRONS in src/worker.ts): each runs every 5 minutes,

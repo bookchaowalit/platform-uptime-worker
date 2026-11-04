@@ -37,7 +37,7 @@ status page only shows own services, without URLs or errors.
 ## How it runs and deploys
 
 Deployed by hand with Wrangler, credentials from Infisical (see README "Deploy"). A push to `main`
-does not deploy. Live at https://solo-empire-monitor.bookchaowalit.workers.dev.
+does not deploy. Live at https://monitor.bookchaowalit.com.
 
 ## Limits
 
