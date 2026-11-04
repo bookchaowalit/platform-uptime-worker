@@ -174,6 +174,9 @@ export const HEARTBEATS: HeartbeatSpec[] = [
   // Knowledge store outbox → Kafka (platform-knowledge-api `relay-outbox` workflow, jobs queue hourly at :55,
   // ADR-0008 M5): 3 h = two missed runs plus an hour; ok:false (relay failed or rows stuck > 3 h) alerts at once.
   { job: 'knowledge-relay', maxAgeHours: 3 },
+  // Intake event outbox → Kafka (platform-intake-api `relay-outbox` workflow, jobs queue hourly at :53, ADR-0008 M5):
+  // 3 h = two missed runs plus an hour; ok:false (relay failed or rows stuck > 3 h) alerts at once.
+  { job: 'intake-relay', maxAgeHours: 3 },
   // Security posture monitor (platform-posture-monitor `posture` workflow, every 6 h at :23).
   // 13 h = one missed or delayed GitHub schedule run plus an hour; ok:false alerts at once.
   { job: 'posture-monitor', maxAgeHours: 13 },
