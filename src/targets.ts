@@ -167,6 +167,10 @@ export const HEARTBEATS: HeartbeatSpec[] = [
   // → Telegram. 3 h = two missed runs plus an hour; ok:false (feeds or assist failed) alerts at once.
   // Added after it ran nothing from 2026-10-29 to 11-03 without anyone noticing.
   { job: 'job-radar', maxAgeHours: 3 },
+  // Event plane → Bronze (data-lake-pipelines `event-sink` workflow, jobs queue hourly at :05, ADR-0008):
+  // 3 h = two missed runs plus an hour; ok:false (event not published, a topic failed, the event did
+  // not come back through the lake, or convert failed) alerts at once.
+  { job: 'event-sink', maxAgeHours: 3 },
   // Security posture monitor (platform-posture-monitor `posture` workflow, every 6 h at :23).
   // 13 h = one missed or delayed GitHub schedule run plus an hour; ok:false alerts at once.
   { job: 'posture-monitor', maxAgeHours: 13 },

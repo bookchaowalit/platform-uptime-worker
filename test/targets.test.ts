@@ -141,6 +141,10 @@ describe('HEARTBEATS', () => {
     expect(HEARTBEATS.find((h) => h.job === 'job-radar')?.maxAgeHours).toBe(3);
   });
 
+  it('watches the hourly event-plane sink (data-lake-pipelines event-sink workflow) with room for two missed runs', () => {
+    expect(HEARTBEATS.find((h) => h.job === 'event-sink')?.maxAgeHours).toBe(3);
+  });
+
   it('watches the 6-hourly security posture monitor (platform-posture-monitor workflow) with room for one missed run', () => {
     expect(HEARTBEATS.find((h) => h.job === 'posture-monitor')?.maxAgeHours).toBe(13);
   });
