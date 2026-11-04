@@ -145,6 +145,10 @@ describe('HEARTBEATS', () => {
     expect(HEARTBEATS.find((h) => h.job === 'intake-relay')?.maxAgeHours).toBe(3);
   });
 
+  it('watches the hourly event notifier with room for two missed runs', () => {
+    expect(HEARTBEATS.find((h) => h.job === 'event-notifier')?.maxAgeHours).toBe(3);
+  });
+
   it('watches the hourly knowledge outbox relay with room for two missed runs', () => {
     expect(HEARTBEATS.find((h) => h.job === 'knowledge-relay')?.maxAgeHours).toBe(3);
   });
