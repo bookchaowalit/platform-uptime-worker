@@ -6,7 +6,7 @@ C4Context
     Person(owner, "Owner", "Reads Telegram alerts, full /status, /check")
     Person(visitor, "Public visitor", "Status page and public /status")
     System(monitor, "solo-empire-monitor", "Cloudflare Worker: uptime probes, heartbeats, Telegram alerts")
-    System_Ext(jobs, "Scheduled jobs", "db-backup*, token-rotate, restore-drill, job-capture, news-capture, checkin-daily, backlog-sync, sheet-summaries, registry-export, jobs-marts, job-radar, posture-monitor")
+    System_Ext(jobs, "Scheduled jobs", "db-backup*, token-rotate, restore-drill, job-capture, news-capture, checkin-daily, backlog-sync, sheet-summaries, registry-export, x-lakehouse, jobs-marts, job-radar, posture-monitor")
     System_Ext(own, "Own services (55 targets)", "Railway APIs, Cloudflare Workers, gateway, bookchaowalit.com, tracking")
     System_Ext(client, "Hosted client services (10 targets)", "ev3, a2n, tma, scannpop, teeparinwat on Railway and Vercel")
     System_Ext(telegram, "Telegram Bot API", "api.telegram.org sendMessage")

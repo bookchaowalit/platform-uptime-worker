@@ -39,6 +39,7 @@ Sources: `src/worker.ts` (`fetch`, `checkTarget`, `sendTelegram`), `src/targets.
 | `backlog-sync` | 3 | platform-empire Railway cron (hourly :05) |
 | `sheet-summaries` | 26 | data-lake-pipelines Railway cron (12:00 UTC) |
 | `registry-export` | 26 | data-lake-pipelines Railway cron (23:40 UTC) |
+| `x-lakehouse` | 11 | data-lake-pipelines Railway cron (01:20, 09:20, 15:20 UTC) |
 | `jobs-marts` | 5 | data-lake-pipelines workflow (2 h at :47) |
 | `job-radar` | 3 | sales-crm Railway cron (hourly :07) |
 | `posture-monitor` | 13 | platform-posture-monitor workflow (6 h at :23) |

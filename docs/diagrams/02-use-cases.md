@@ -47,7 +47,7 @@ Sources: `src/worker.ts` (`authorized`, `handleStatus`, `handleManualCheck`, `ha
 | Scheduled job | `Authorization: Bearer <HEARTBEAT_TOKEN>`; job ต้องอยู่ใน `HEARTBEATS` ไม่งั้น 404 | UC5 |
 | Cron trigger | `scheduled()` จาก `wrangler.toml` `[triggers]` | UC6–UC9 |
 
-Heartbeat callers ที่ระบุใน comment ของ `src/targets.ts`: platform-db-backup (`db-backup*`, `restore-drill`), platform-empire (`token-rotate`, `backlog-sync`), career-job-scraper (`job-capture`), content-news-scraper (`news-capture`), life-checkin-worker (`checkin-daily`), data-lake-pipelines (`sheet-summaries`, `registry-export`, `jobs-marts`), sales-crm (`job-radar`), platform-posture-monitor (`posture-monitor`)
+Heartbeat callers ที่ระบุใน comment ของ `src/targets.ts`: platform-db-backup (`db-backup*`, `restore-drill`), platform-empire (`token-rotate`, `backlog-sync`), career-job-scraper (`job-capture`), content-news-scraper (`news-capture`), life-checkin-worker (`checkin-daily`), data-lake-pipelines (`sheet-summaries`, `registry-export`, `jobs-marts`, `x-lakehouse`), sales-crm (`job-radar`), platform-posture-monitor (`posture-monitor`)
 
 ## Open questions
 
