@@ -186,3 +186,9 @@ describe('Book Platform services (deployed 2026-10-29, security 2026-11-02)', ()
     }
   });
 });
+
+describe('monitor watchdog heartbeat (SPEC-001)', () => {
+  it('AC-07 watches the external watchdog with a 6 h window', () => {
+    expect(HEARTBEATS.find((h) => h.job === 'monitor-watchdog')).toEqual({ job: 'monitor-watchdog', maxAgeHours: 6 });
+  });
+});

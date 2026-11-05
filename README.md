@@ -33,7 +33,14 @@ Cloudflare Worker that monitors your services 24/7 on the **free tier**.
   one has not been probed within that window: a stopped cron or a target that is never due cannot
   report itself. One reminder every 6 hours, and `✅ <name> is being probed again` when it recovers.
   New targets and a freshly deployed watcher get a full window first.
-  If both shard crons stop, nothing in this Worker can report it; that needs an outside check.
+  If both shard crons stop, nothing in this Worker can report it, so an outside check covers it (next item).
+- **External watchdog** (`.github/workflows/watchdog.yml`, SPEC-001): a GitHub-hosted job, hourly at :17,
+  reads the public `/status` and alerts Telegram directly (`[monitor-watchdog] …`) when the monitor is
+  unreachable or no target has been probed for 30 minutes. A failed run is the fallback channel (GitHub
+  emails the owner). A healthy run posts heartbeat `monitor-watchdog`, which this Worker watches (6 h),
+  so each side reports when the other one stops. Secrets: `HEARTBEAT_TOKEN`, `TELEGRAM_BOT_TOKEN`,
+  `TELEGRAM_CHAT_ID` (Infisical `/monitoring` and `/telegram` NOTI). It sends one message every hour while
+  the problem lasts, with no recovery message. Run it by hand: `gh workflow run watchdog.yml`.
 - One KV write per shard run (about 576 a day), inside the free plan's 1,000 writes a day; each
   run also reads the other shard's state (one KV read) for seeding and the staleness watch.
 

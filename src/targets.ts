@@ -187,6 +187,10 @@ export const HEARTBEATS: HeartbeatSpec[] = [
   // Dependency vulnerability digest (platform-vuln-digest `digest` workflow, jobs queue daily at 01:17 UTC).
   // 30 h = one missed day plus six hours; ok:false (sweep, R2 or Telegram failed) alerts at once.
   { job: 'vuln-digest', maxAgeHours: 30 },
+  // External watchdog of this Worker (this repo's `watchdog` workflow, GitHub-hosted, hourly at :17,
+  // SPEC-001). Each side watches the other. 6 h because GitHub often skips or delays hourly
+  // schedule runs; it also catches GitHub turning the schedule off after 60 idle days.
+  { job: 'monitor-watchdog', maxAgeHours: 6 },
 ]);
 
 // Two cron triggers split the targets (by a hash of the name, so adding a target never moves the

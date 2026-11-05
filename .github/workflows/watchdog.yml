@@ -1,0 +1,38 @@
+# External watchdog for this Worker (specs/001-monitor-watchdog/spec.md). Runs outside Cloudflare
+# so it still reports when both cron shards stop or the Worker is unreachable. It alerts Telegram
+# directly, and a failed run is the fallback channel (GitHub emails the owner). On a healthy check
+# it posts heartbeat `monitor-watchdog`, which the Worker watches (6 h) in turn.
+#
+# Public repository: GitHub-hosted runner. The log prints only the problem text; secrets are
+# passed as env and never echoed.
+name: Monitor watchdog
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: monitor-watchdog
+  cancel-in-progress: false
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+      - name: Check the monitor
+        env:
+          HEARTBEAT_TOKEN: ${{ secrets.HEARTBEAT_TOKEN }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: node scripts/watchdog.ts
