@@ -33,7 +33,7 @@ const SLEEPS = new Set([
   'content-api', 'radar-api', 'accounts-api', 'accounts-metadata-api', 'automation-api',
   'intake-api', 'notifications-api', 'integrations-api', 'knowledge-api', 'saas-catalog-api',
   'communication-api', 'media-api', 'data-api', 'workflow-api', 'commerce-api', 'logistics-api',
-  'developer-api', 'security-api', 'api-gateway',
+  'developer-api', 'security-api', 'payment-api', 'api-gateway',
 ]);
 
 const ALL_TARGETS: Target[] = [
@@ -81,6 +81,7 @@ const ALL_TARGETS: Target[] = [
   { name: 'logistics-api', url: railway('logistics-api-production-d3bb', '/readyz'), group: 'own' },
   { name: 'developer-api', url: railway('developer-api-production-2fad', '/readyz'), group: 'own' },
   { name: 'security-api', url: railway('security-api-production-f817', '/readyz'), group: 'own' }, // 2026-11-02
+  { name: 'payment-api', url: railway('payment-api-production-3a91', '/readyz'), group: 'own' }, // 2026-11-05, Stripe test mode
   // Edge gateway (platform-api-gateway SPEC-001) behind the Cloudflare proxy; /healthz skips the edge lock.
   { name: 'api-gateway', url: 'https://gateway.bookchaowalit.com/healthz', group: 'own' }, // 2026-11-03
   // Life

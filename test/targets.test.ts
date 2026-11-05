@@ -176,6 +176,7 @@ describe('Book Platform services (deployed 2026-10-29, security 2026-11-02)', ()
     'logistics-api': 'logistics-api-production-d3bb',
     'developer-api': 'developer-api-production-2fad',
     'security-api': 'security-api-production-f817',
+    'payment-api': 'payment-api-production-3a91', // ready 2026-11-05 (Stripe test mode)
   };
 
   it('probes each one on /readyz, hourly because it sleeps when idle', () => {
