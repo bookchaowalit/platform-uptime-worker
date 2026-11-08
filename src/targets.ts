@@ -33,7 +33,7 @@ const SLEEPS = new Set([
   'content-api', 'radar-api', 'accounts-api', 'accounts-metadata-api', 'automation-api',
   'intake-api', 'notifications-api', 'integrations-api', 'knowledge-api', 'saas-catalog-api',
   'communication-api', 'media-api', 'data-api', 'workflow-api', 'commerce-api', 'logistics-api',
-  'developer-api', 'security-api', 'payment-api', 'api-gateway',
+  'developer-api', 'security-api', 'payment-api', 'api-gateway', 'credits-api',
 ]);
 
 const ALL_TARGETS: Target[] = [
@@ -82,6 +82,7 @@ const ALL_TARGETS: Target[] = [
   { name: 'developer-api', url: railway('developer-api-production-2fad', '/readyz'), group: 'own' },
   { name: 'security-api', url: railway('security-api-production-f817', '/readyz'), group: 'own' }, // 2026-11-02
   { name: 'payment-api', url: railway('payment-api-production-3a91', '/readyz'), group: 'own' }, // 2026-11-05, Stripe test mode
+  { name: 'credits-api', url: railway('credits-api-production-6d80', '/readyz'), group: 'own' }, // 2026-11-08, platform-credits SPEC-003
   // Edge gateway (platform-api-gateway SPEC-001) behind the Cloudflare proxy; /healthz skips the edge lock.
   { name: 'api-gateway', url: 'https://gateway.bookchaowalit.com/healthz', group: 'own' }, // 2026-11-03
   // Life
@@ -185,6 +186,9 @@ export const HEARTBEATS: HeartbeatSpec[] = [
   // Event notifier, Kafka → Telegram (platform-event-notifier `notify` workflow, jobs queue hourly at :58,
   // ADR-0008 consumer #1): 3 h = two missed runs plus an hour; ok:false (join, consume or send failed) alerts at once.
   { job: 'event-notifier', maxAgeHours: 3 },
+  // Credits settlement worker (platform-credits `tick`, Railway cron every 15 min, SPEC-003): 1 h = three
+  // missed runs plus a quarter; ok:false (a step failed: payment, relay, row errors) alerts at once.
+  { job: 'credits-worker', maxAgeHours: 1 },
   // Security posture monitor (platform-posture-monitor `posture` workflow, every 6 h at :23).
   // 13 h = one missed or delayed GitHub schedule run plus an hour; ok:false alerts at once.
   { job: 'posture-monitor', maxAgeHours: 13 },
