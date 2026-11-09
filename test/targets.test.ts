@@ -145,6 +145,10 @@ describe('HEARTBEATS', () => {
     expect(HEARTBEATS.find((h) => h.job === 'news-marts')?.maxAgeHours).toBe(5);
   });
 
+  it('watches the hourly payment outbox relay (platform-payment payment-relay cron) with room for two missed runs', () => {
+    expect(HEARTBEATS.find((h) => h.job === 'payment-relay')?.maxAgeHours).toBe(3);
+  });
+
   it('watches the hourly job-radar cron (sales-crm, Railway) with room for two missed runs', () => {
     expect(HEARTBEATS.find((h) => h.job === 'job-radar')?.maxAgeHours).toBe(3);
   });
