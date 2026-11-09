@@ -141,6 +141,10 @@ describe('HEARTBEATS', () => {
     expect(HEARTBEATS.find((h) => h.job === 'jobs-marts')?.maxAgeHours).toBe(5);
   });
 
+  it('watches the 2-hourly news marts run (data-lake-pipelines news-marts workflow) with room for two missed runs', () => {
+    expect(HEARTBEATS.find((h) => h.job === 'news-marts')?.maxAgeHours).toBe(5);
+  });
+
   it('watches the hourly job-radar cron (sales-crm, Railway) with room for two missed runs', () => {
     expect(HEARTBEATS.find((h) => h.job === 'job-radar')?.maxAgeHours).toBe(3);
   });
