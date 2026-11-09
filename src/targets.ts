@@ -172,6 +172,9 @@ export const HEARTBEATS: HeartbeatSpec[] = [
   // Payment outbox → Kafka commerce.events.v1 (platform-payment Railway cron `payment-relay`, hourly at :50,
   // ADR-0008 M3). 3 h = two missed runs plus an hour; ok:false (relay crashed or a publish failed) alerts at once.
   { job: 'payment-relay', maxAgeHours: 3 },
+  // Sales Bronze → dbt marts → Gold → revenue page (data-lake-pipelines `sales-marts` workflow, jobs queue hourly at :20).
+  // 3 h = two missed runs plus an hour; ok:false (failed, rejected commerce events, or the page deploy failed) alerts at once.
+  { job: 'sales-marts', maxAgeHours: 3 },
   // News Silver → dbt marts → Gold → BI (data-lake-pipelines `news-marts` workflow, jobs queue every 2 h at :35).
   // 5 h = two missed runs plus an hour; ok:false (failed, a feed silent for 6 h, or the BI deploy failed) alerts at once.
   { job: 'news-marts', maxAgeHours: 5 },
