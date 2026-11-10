@@ -163,6 +163,7 @@ describe('HEARTBEATS', () => {
 
   it('watches the daily vuln digest with room for one missed day', () => {
     expect(HEARTBEATS.find((h) => h.job === 'vuln-digest')?.maxAgeHours).toBe(30);
+    expect(HEARTBEATS.find((h) => h.job === 'files-backup')?.maxAgeHours).toBe(26);
   });
 
   it('watches the hourly event notifier with room for two missed runs', () => {
