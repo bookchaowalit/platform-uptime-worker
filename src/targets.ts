@@ -198,6 +198,9 @@ export const HEARTBEATS: HeartbeatSpec[] = [
   // Credits settlement worker (platform-credits `tick`, Railway cron every 15 min, SPEC-003): 1 h = three
   // missed runs plus a quarter; ok:false (a step failed: payment, relay, row errors) alerts at once.
   { job: 'credits-worker', maxAgeHours: 1 },
+  // Communication delivery worker (platform-communication Railway cron `communication-worker`, every 30 min,
+  // `worker --until-empty`): 2 h = three missed runs plus half an hour; ok:false (startup or drain failed) alerts at once.
+  { job: 'communication-worker', maxAgeHours: 2 },
   // Security posture monitor (platform-posture-monitor `posture` workflow, every 6 h at :23).
   // 13 h = one missed or delayed GitHub schedule run plus an hour; ok:false alerts at once.
   { job: 'posture-monitor', maxAgeHours: 13 },
