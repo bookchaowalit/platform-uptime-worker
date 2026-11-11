@@ -33,7 +33,7 @@ const SLEEPS = new Set([
   'content-api', 'radar-api', 'accounts-api', 'accounts-metadata-api', 'automation-api',
   'intake-api', 'notifications-api', 'integrations-api', 'knowledge-api', 'saas-catalog-api',
   'communication-api', 'media-api', 'data-api', 'workflow-api', 'commerce-api', 'logistics-api',
-  'developer-api', 'security-api', 'payment-api', 'api-gateway', 'credits-api',
+  'developer-api', 'security-api', 'payment-api', 'credits-api',
 ]);
 
 const ALL_TARGETS: Target[] = [
@@ -84,6 +84,9 @@ const ALL_TARGETS: Target[] = [
   { name: 'payment-api', url: railway('payment-api-production-3a91', '/readyz'), group: 'own' }, // 2026-11-05, Stripe test mode
   { name: 'credits-api', url: railway('credits-api-production-6d80', '/readyz'), group: 'own' }, // 2026-11-08, platform-credits SPEC-003
   // Edge gateway (platform-api-gateway SPEC-001) behind the Cloudflare proxy; /healthz skips the edge lock.
+  // Probed every 5 minutes, not hourly (2026-11-11): crons, Workers and owner tools call the cells
+  // through it and cells are moving to gateway-only (SPEC-002 enforce), so an outage must alert in
+  // ~10 minutes. The probe keeps the serverless service awake.
   { name: 'api-gateway', url: 'https://gateway.bookchaowalit.com/healthz', group: 'own' }, // 2026-11-03
   // Life
   { name: 'goals-api', url: railway('goals-api-production-c16e'), group: 'own' },
