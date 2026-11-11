@@ -196,7 +196,7 @@ export const HEARTBEATS: HeartbeatSpec[] = [
   // 3 h = two missed runs plus an hour; ok:false (relay failed or rows stuck > 3 h) alerts at once.
   { job: 'intake-relay', maxAgeHours: 3 },
   // Finance outboxes → Kafka finance.events.v1 (finance-<cell>-api `relay-outbox` workflows, jobs queue hourly at
-  // :41–:50, SPEC-005): 3 h = two missed runs plus an hour; ok:false (relay failed or rows stuck > 3 h) alerts at once.
+  // :36–:45, SPEC-005): 3 h = two missed runs plus an hour; ok:false (relay failed or rows stuck > 3 h) alerts at once.
   ...['accounts', 'transactions', 'budgets', 'cash-flow', 'reconciliations', 'business-assets', 'investments', 'liabilities', 'subscriptions', 'tax']
     .map((cell) => ({ job: `finance-relay-${cell}`, maxAgeHours: 3 })),
   // Event notifier, Kafka → Telegram (platform-event-notifier `notify` workflow, jobs queue hourly at :58,
