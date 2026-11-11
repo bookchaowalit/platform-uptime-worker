@@ -184,6 +184,9 @@ export const HEARTBEATS: HeartbeatSpec[] = [
   // News Silver → dbt marts → Gold → BI (data-lake-pipelines `news-marts` workflow, jobs queue every 2 h at :35).
   // 5 h = two missed runs plus an hour; ok:false (failed, a feed silent for 6 h, or the BI deploy failed) alerts at once.
   { job: 'news-marts', maxAgeHours: 5 },
+  // Owner's public GitHub repos + events → Bronze (data-lake-pipelines `github-activity` workflow, jobs queue daily at 03:10 UTC).
+  // 26 h = one daily run plus two hours; ok:false (API, storage or contract error) alerts at once.
+  { job: 'github-activity', maxAgeHours: 26 },
   // Remote job leads (sales-crm `job-radar` Railway cron, hourly at :07): feeds → lake → job_leads
   // → Telegram. 3 h = two missed runs plus an hour; ok:false (feeds or assist failed) alerts at once.
   // Added after it ran nothing from 2026-10-29 to 11-03 without anyone noticing.
