@@ -71,7 +71,8 @@ const ALL_TARGETS: Target[] = [
   { name: 'subscriptions-api', url: railway('subscriptions-api-production-b1d4'), group: 'own' },
   { name: 'tax-api', url: railway('tax-api-production-57f6'), group: 'own' },
   // Finance suite entry point (finance-api, SPEC-001): stateless views over the finance cells.
-  { name: 'finance-api', url: railway('finance-api-production-12ec36af'), group: 'own' },
+  // Labelled finance-suite-api so it hashes into shard 1 (shard 0 is at its 50-subrequest budget).
+  { name: 'finance-suite-api', url: railway('finance-api-production-12ec36af'), group: 'own' },
   // Sales
   { name: 'offers-api', url: railway('offers-api-production'), group: 'own' },
   // Book Platform services (bookchaowalit-backend/platform-*), deployed 2026-10-29
