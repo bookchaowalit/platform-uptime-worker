@@ -231,6 +231,8 @@ export const HEARTBEATS: HeartbeatSpec[] = [
   // SPEC-001). Each side watches the other. 6 h because GitHub often skips or delays hourly
   // schedule runs; it also catches GitHub turning the schedule off after 60 idle days.
   { job: 'monitor-watchdog', maxAgeHours: 6 },
+  // Daily sweep of the static Vercel sites (SPEC-003, GitHub Actions 02:23 UTC).
+  { job: 'static-sweep', maxAgeHours: 26 },
   // Homelab file server off-site backup (beelink CT 110 `files-backup.timer`, restic → R2
   // `homelab-files-backup`, daily 02:30 Asia/Bangkok). 26 h = one daily run plus two hours;
   // ok:false (backup, prune or check failed) alerts at once. Runbook: architecture-docs HOMELAB-FILE-SERVER.md.
