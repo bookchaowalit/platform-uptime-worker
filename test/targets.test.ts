@@ -152,6 +152,10 @@ describe('HEARTBEATS', () => {
     expect(HEARTBEATS.find((h) => h.job === 'news-marts')?.maxAgeHours).toBe(5);
   });
 
+  it('watches the daily Wikipedia top-articles capture (data-lake-pipelines wiki-pageviews workflow) with two hours of slack', () => {
+    expect(HEARTBEATS.find((h) => h.job === 'wiki-pageviews')?.maxAgeHours).toBe(26);
+  });
+
   it('watches the daily Hugging Face trending snapshot (data-lake-pipelines hf-trending workflow) with two hours of slack', () => {
     expect(HEARTBEATS.find((h) => h.job === 'hf-trending')?.maxAgeHours).toBe(26);
   });
