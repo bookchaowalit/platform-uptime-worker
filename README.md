@@ -24,6 +24,7 @@ Cloudflare Worker that monitors your services 24/7 on the **free tier**.
 - Heartbeats for scheduled jobs: `POST /heartbeat/<job>` with `Authorization: Bearer
   <HEARTBEAT_TOKEN>`. A report with `"ok": false` alerts straight away; a job that misses its window
   (`db-backup`: 26 hours) alerts too.
+- `/` (SPEC-002): public status page for customers, Thai first, services grouped by product (Life OS, Finance, CRM, AI, data, platform, websites) with an overall verdict; stale probes show as "no recent data". Linked from SaaS footers.
 - `/status`: public JSON limited to own services, without URLs or errors. With
   `Authorization: Bearer <MONITOR_TOKEN>` it returns everything, heartbeats included.
 - `/check?shard=0|1` (token-protected) probes one shard right away and reports, read-only: it never writes state or sends alerts.

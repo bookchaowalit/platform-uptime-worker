@@ -24,6 +24,7 @@ import {
 } from './monitor';
 import { HEARTBEATS, SHARDS, TARGETS, type Target } from './targets';
 import { withOptionalSentry, type WorkerHandler } from './sentry';
+import { STATUS_PAGE, STATUS_PAGE_HEADERS } from './status-page';
 
 export interface Env {
   MONITOR_KV: KVNamespace;
@@ -93,7 +94,7 @@ const handler: WorkerHandler<Env> = {
     if (url.pathname === '/status') return handleStatus(request, env);
     if (url.pathname === '/check') return handleManualCheck(request, env);
     if (url.pathname.startsWith('/heartbeat/')) return handleHeartbeat(request, env, url);
-    if (url.pathname === '/') return new Response(STATUS_PAGE, { headers: { 'Content-Type': 'text/html' } });
+    if (url.pathname === '/') return new Response(STATUS_PAGE, { headers: STATUS_PAGE_HEADERS });
     return new Response('Not found', { status: 404 });
   },
 
@@ -310,42 +311,3 @@ async function sendTelegram(env: Env, text: string): Promise<boolean> {
     return false;
   }
 }
-
-const STATUS_PAGE = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <title>Solo Empire Status</title>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>
-    body { font-family: -apple-system, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
-    .service { padding: 12px 15px; margin: 8px 0; border-radius: 8px; }
-    .up { background: #d4edda; border-left: 4px solid #28a745; }
-    .down { background: #f8d7da; border-left: 4px solid #dc3545; }
-    .unknown { background: #e2e3e5; border-left: 4px solid #6c757d; }
-    .latency, .last-check { color: #555; font-size: 0.9em; }
-  </style>
-</head>
-<body>
-  <h1>Solo Empire Status</h1>
-  <p class="last-check">Loading...</p>
-  <div id="services"></div>
-  <script>
-    fetch('/status').then(r => r.json()).then(data => {
-      document.querySelector('.last-check').textContent = 'Updated: ' + new Date(data.timestamp).toLocaleString();
-      const list = document.getElementById('services');
-      for (const s of data.results) {
-        const div = document.createElement('div');
-        div.className = 'service ' + s.status;
-        const name = document.createElement('strong');
-        name.textContent = s.name;
-        const meta = document.createElement('div');
-        meta.className = 'latency';
-        meta.textContent = s.status + (s.latency != null ? ' · ' + s.latency + 'ms' : '');
-        div.append(name, meta);
-        list.append(div);
-      }
-    });
-  </script>
-</body>
-</html>`;

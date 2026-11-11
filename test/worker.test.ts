@@ -114,8 +114,11 @@ describe('routing', () => {
   it('serves the status page at /', async () => {
     const res = await call(request('/'));
     expect(res.status).toBe(200);
-    expect(res.headers.get('content-type')).toBe('text/html');
-    expect(await res.text()).toContain('Solo Empire Status');
+    expect(res.headers.get('content-type')).toBe('text/html; charset=utf-8');
+    expect(res.headers.get('cache-control')).toBe('public, max-age=60');
+    expect(res.headers.get('content-security-policy')).toContain("connect-src 'self'");
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(await res.text()).toContain('<html lang="th">');
   });
 
   it('answers 404 for unknown paths', async () => {
