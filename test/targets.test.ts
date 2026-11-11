@@ -170,6 +170,10 @@ describe('HEARTBEATS', () => {
     expect(HEARTBEATS.find((h) => h.job === 'event-notifier')?.maxAgeHours).toBe(3);
   });
 
+  it('probes the finance suite entry point (finance-api, SPEC-001)', () => {
+    expect(TARGETS.find((t) => t.name === 'finance-suite-api')?.url).toBe('https://finance-api-production-12ec36af.up.railway.app/health');
+  });
+
   it('watches the ten hourly finance outbox relays (SPEC-005) with room for two missed runs', () => {
     const cells = ['accounts', 'transactions', 'budgets', 'cash-flow', 'reconciliations', 'business-assets', 'investments', 'liabilities', 'subscriptions', 'tax'];
     for (const cell of cells) {

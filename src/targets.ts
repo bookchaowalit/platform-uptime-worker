@@ -70,6 +70,8 @@ const ALL_TARGETS: Target[] = [
   { name: 'liabilities-api', url: railway('liabilities-api-production'), group: 'own' },
   { name: 'subscriptions-api', url: railway('subscriptions-api-production-b1d4'), group: 'own' },
   { name: 'tax-api', url: railway('tax-api-production-57f6'), group: 'own' },
+  // Finance suite entry point (finance-api, SPEC-001): stateless views over the finance cells.
+  { name: 'finance-api', url: railway('finance-api-production-12ec36af'), group: 'own' },
   // Sales
   { name: 'offers-api', url: railway('offers-api-production'), group: 'own' },
   // Book Platform services (bookchaowalit-backend/platform-*), deployed 2026-10-29
