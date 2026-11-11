@@ -19,3 +19,7 @@ crons = ["*/5 * * * *", "2-59/5 * * * *"]
 [[kv_namespaces]]
 binding = "MONITOR_KV"
 id = "214d9f79913b4f18ad80e942836844b3"
+
+[vars]
+# Daily edge gateway report (src/gateway-report.ts); the token is the secret GATEWAY_REPORT_CF_TOKEN.
+GATEWAY_REPORT_ZONE_ID = "8279099075e766aa61998872b5d0d3d3"
