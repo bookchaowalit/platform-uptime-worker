@@ -170,6 +170,13 @@ describe('HEARTBEATS', () => {
     expect(HEARTBEATS.find((h) => h.job === 'event-notifier')?.maxAgeHours).toBe(3);
   });
 
+  it('watches the ten hourly finance outbox relays (SPEC-005) with room for two missed runs', () => {
+    const cells = ['accounts', 'transactions', 'budgets', 'cash-flow', 'reconciliations', 'business-assets', 'investments', 'liabilities', 'subscriptions', 'tax'];
+    for (const cell of cells) {
+      expect(HEARTBEATS.find((h) => h.job === `finance-relay-${cell}`)?.maxAgeHours).toBe(3);
+    }
+  });
+
   it('watches the hourly knowledge outbox relay with room for two missed runs', () => {
     expect(HEARTBEATS.find((h) => h.job === 'knowledge-relay')?.maxAgeHours).toBe(3);
   });
