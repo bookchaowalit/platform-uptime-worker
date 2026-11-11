@@ -29,9 +29,9 @@ export const GROUPS: GroupDef[] = [
     match: ['^finance-', '^(transactions|budgets|cash-flow|reconciliations|business-assets|investments|liabilities|subscriptions|tax)-api$'] },
   { id: 'crm', th: 'CRM และงานขาย', en: 'CRM & sales',
     match: ['^crm-api', '^(offers|opportunities|radar)-api$', '^book-job-data-api$'] },
-  { id: 'ai', th: 'AI', en: 'AI', match: ['^ai-', '^mcp-remote$'] },
+  { id: 'ai', th: 'AI', en: 'AI', match: ['^ai-', '^mcp-remote$', '^meeting-minutes'] },
   { id: 'data', th: 'ข้อมูลและความรู้', en: 'Data & knowledge',
-    match: ['^(knowledge|intake|content|saas-catalog|integrations|data)-api$', '^jobs-worker$'] },
+    match: ['^(knowledge|intake|content|saas-catalog|integrations|data)-api$', '^jobs-worker$', '^meta-capture$'] },
   { id: 'platform', th: 'บริการกลาง', en: 'Platform services', match: [] },
   { id: 'web', th: 'เว็บไซต์', en: 'Websites', match: ['\\.com$', '^awesome-web$'] },
 ];

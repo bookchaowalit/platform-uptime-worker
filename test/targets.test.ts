@@ -24,6 +24,13 @@ describe('TARGETS', () => {
     );
   });
 
+  it('probes Meeting Minutes (sleeping, hourly) and the Meta capture worker (interface-coverage ops baseline)', () => {
+    const mm = TARGETS.find((t) => t.name === 'meeting-minutes-api');
+    expect(mm?.url).toBe('https://meeting-minutes-api-production.up.railway.app/healthz');
+    expect(mm?.sleeps).toBe(true);
+    expect(TARGETS.find((t) => t.name === 'meta-capture')?.url).toBe('https://meta-capture.bookchaowalit.workers.dev/health');
+  });
+
   it('uses only the own and client groups', () => {
     for (const t of TARGETS) expect(['own', 'client']).toContain(t.group);
     expect(TARGETS.some((t) => t.group === 'own')).toBe(true);

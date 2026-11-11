@@ -33,7 +33,7 @@ const SLEEPS = new Set([
   'content-api', 'radar-api', 'accounts-api', 'accounts-metadata-api', 'automation-api',
   'intake-api', 'notifications-api', 'integrations-api', 'knowledge-api', 'saas-catalog-api',
   'communication-api', 'media-api', 'data-api', 'workflow-api', 'commerce-api', 'logistics-api',
-  'developer-api', 'security-api', 'payment-api', 'credits-api',
+  'developer-api', 'security-api', 'payment-api', 'credits-api', 'meeting-minutes-api',
 ]);
 
 const ALL_TARGETS: Target[] = [
@@ -110,6 +110,10 @@ const ALL_TARGETS: Target[] = [
   { name: 'crm-api (agency-crm)', url: railway('crm-api-production-a7e0'), group: 'own' },
   { name: 'book-job-data-api', url: railway('book-job-data-api-production', '/healthz'), group: 'own' },
   { name: 'awesome-web', url: railway('awesome-web-production'), group: 'own' },
+  // Meeting Minutes (bookchaowalit-ai/meeting-minutes): Railway serverless, so probed hourly.
+  { name: 'meeting-minutes-api', url: railway('meeting-minutes-api-production', '/healthz'), group: 'own' },
+  // Meta share-to-Telegram capture webhook (data-lake-pipelines workers/meta-capture).
+  { name: 'meta-capture', url: 'https://meta-capture.bookchaowalit.workers.dev/health', group: 'own' },
   { name: 'bookchaowalit.com', url: 'https://bookchaowalit.com', group: 'own' },
   { name: 'tracking.bookchaowalit.com', url: 'https://tracking.bookchaowalit.com', group: 'own' },
   // Clients (hosted by us)

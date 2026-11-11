@@ -25,6 +25,8 @@ describe('SPEC-002 status page', () => {
     expect(productFor('offers-api')).toBe('crm');
     expect(productFor('ai-gateway')).toBe('ai');
     expect(productFor('knowledge-api')).toBe('data');
+    expect(productFor('meta-capture')).toBe('data');
+    expect(productFor('meeting-minutes-api')).toBe('ai');
     expect(productFor('bookchaowalit.com')).toBe('web');
     expect(productFor('payment-api')).toBe('platform');
     expect(productFor('something-new')).toBe('platform');
