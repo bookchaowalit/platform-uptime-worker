@@ -13,6 +13,7 @@ import {
   mergeShardStates,
   handoverStates,
   heartbeatGraceHours,
+  FAILURES_BEFORE_DOWN,
   newestStates,
   queueAlerts,
   staleHeartbeats,
@@ -84,7 +85,8 @@ function essence(state: ShardState): string {
   const targets = Object.fromEntries(
     Object.entries(state.targets)
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([name, t]) => [name, { status: t.status, consecutiveFailures: t.consecutiveFailures, since: t.since,
+      // The counter keeps rising while a target stays down; past the threshold that changes nothing.
+      .map(([name, t]) => [name, { status: t.status, consecutiveFailures: Math.min(t.consecutiveFailures, FAILURES_BEFORE_DOWN), since: t.since,
         lastAlertAt: t.lastAlertAt, error: t.error }]),
   );
   return JSON.stringify({ targets, pendingAlerts: state.pendingAlerts, staleWatch: state.staleWatch,
@@ -293,7 +295,9 @@ async function runShard(env: Env, shard: number, opts: { readOnly: boolean }) {
   const next: ShardState = { targets: state, pendingAlerts, staleWatch: stale.watch, watchSince };
   const changed = essence(next) !== essence(previous);
   const due = !previous.writtenAt || now.getTime() - Date.parse(previous.writtenAt) >= STATE_REWRITE_MS;
-  if (changed || due) await env.MONITOR_KV.put(stateKey(shard), JSON.stringify({ ...next, writtenAt: now.toISOString() }));
+  // A sleeping service is probed once an hour; that probe time must land, or it looks unprobed.
+  const sleeperProbed = targets.some((t) => t.sleeps);
+  if (changed || due || sleeperProbed) await env.MONITOR_KV.put(stateKey(shard), JSON.stringify({ ...next, writtenAt: now.toISOString() }));
   await Promise.all(staleMarks.map((job) => env.MONITOR_KV.put(staleKey(job), now.toISOString())));
 
   // Parked failed-run alerts: each key is deleted only after Telegram accepted that alert.

@@ -45,7 +45,8 @@ Cloudflare Worker that monitors your services 24/7 on the **free tier**.
   the problem lasts, with no recovery message. Run it by hand: `gh workflow run watchdog.yml`.
 - KV writes are the tightest free-plan limit (1,000 a day for the whole account; measured 1,150 on
   2026-11-11 before this change). A shard state is written when anything alerting depends on changed
-  (status, failure count, alert queue, stale watch) and otherwise every 10 minutes (about 288 a day
+  (status, failure count up to the down threshold, alert queue, stale watch), after every hourly probe
+  of sleeping services, and otherwise every 10 minutes (about 288 a day
   instead of 576; the cross-shard watch allows 30 minutes). A good heartbeat is rewritten only once its
   record is older than its grace (half its window, at most 1 h), and staleness adds that grace back, so an
   alert still means no report for the full window (it may come up to 1 h later). Failed runs and the first

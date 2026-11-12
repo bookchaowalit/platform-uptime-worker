@@ -385,6 +385,34 @@ describe('scheduled', () => {
     expect(JSON.parse(kv.store.get('state:1')!).targets[target.name].consecutiveFailures).toBe(1);
   });
 
+  it('a target that stays down does not force a write every run', async () => {
+    const target = targetsForShard(TARGETS, 1, SHARDS).find((t) => !t.sleeps)!;
+    failing = new Set([target.url]);
+    const writes = () => kv.puts.filter((k) => k === 'state:1').length;
+    for (const minute of ['07', '12', '17', '22']) {  // down from :12 on
+      vi.setSystemTime(new Date(`2026-10-23T10:${minute}:00Z`));
+      await runCron('2-59/5 * * * *');
+    }
+    // :07 first, :12 down, :17 nothing new (skip), :22 10 min since :12
+    expect(writes()).toBe(3);
+  });
+
+  it('writes the state whenever a sleeping service was probed', async () => {
+    const sleeper = targetsForShard(TARGETS, 1, SHARDS).find((t) => t.sleeps);
+    if (!sleeper) return;
+    vi.setSystemTime(new Date('2026-10-23T09:57:00Z'));
+    await runCron('2-59/5 * * * *');
+    const writes = () => kv.puts.filter((k) => k === 'state:1').length;
+    const before = writes();
+    for (const minute of ['02', '07']) {  // the hourly slot of sleepers is in this window
+      vi.setSystemTime(new Date(`2026-10-23T10:${minute}:00Z`));
+      await runCron('2-59/5 * * * *');
+    }
+    const state = JSON.parse(kv.store.get('state:1')!);
+    expect(state.targets[sleeper.name]?.checkedAt >= '2026-10-23T10:00:00Z').toBe(true);
+    expect(writes()).toBeGreaterThan(before);
+  });
+
   it('on shard 0, alerts once for a heartbeat that never reported and delivers parked alerts', async () => {
     vi.setSystemTime(new Date('2026-10-23T10:07:00Z'));
     for (const h of HEARTBEATS) {
