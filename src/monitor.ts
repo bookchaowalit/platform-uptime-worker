@@ -34,6 +34,8 @@ export interface ShardState {
   /** Staleness watch over the next shard's targets (TD-004), and when that watch started. */
   staleWatch: StaleWatch;
   watchSince?: string;
+  /** When this state was last written; unchanged states are rewritten only every few runs (KV budget). */
+  writtenAt?: string;
 }
 
 /** Undelivered alert lines kept for retry; the oldest are dropped beyond this. */

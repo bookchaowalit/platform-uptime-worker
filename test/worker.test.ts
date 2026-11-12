@@ -93,7 +93,9 @@ beforeEach(() => {
       const url = String(input instanceof Request ? input.url : input);
       if (url.startsWith('https://api.telegram.org/')) {
         if (!telegramUp) return new Response('down', { status: 502 });
-        telegram.push(JSON.parse(String(init?.body)).text);
+        const text = JSON.parse(String(init?.body)).text as string;
+        if (text.length > 4096 || text.includes('REFUSE')) return new Response('bad request', { status: 400 });
+        telegram.push(text);
         return Response.json({ ok: true });
       }
       probed.push(url);
@@ -211,9 +213,13 @@ describe('/check', () => {
     failing = new Set(TARGETS.map((t) => t.url));
     const res = await call(request('/check?shard=1', { headers: bearer(MONITOR_TOKEN) }));
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { shard: number; checked: number; readOnly: boolean };
+    const body = (await res.json()) as {
+      shard: number; checked: number; readOnly: boolean; results: { name: string; ok: boolean; error?: string }[];
+    };
     const shardTargets = targetsForShard(TARGETS, 1, SHARDS);
     expect(body).toMatchObject({ shard: 1, checked: shardTargets.length, readOnly: true });
+    expect(body.results.map((r) => r.name).sort()).toEqual(shardTargets.map((t) => t.name).sort());
+    expect(body.results.every((r) => r.ok === false && r.error === 'HTTP 503')).toBe(true);
     expect(probed.sort()).toEqual(shardTargets.map((t) => t.url).sort());
     expect(kv.puts).toEqual([]);
     expect(telegram).toEqual([]);
@@ -256,6 +262,36 @@ describe('/heartbeat/<job>', () => {
     await call(request('/heartbeat/restore-drill', { method: 'POST', headers: bearer(HEARTBEAT_TOKEN), body: 'oops' }));
     expect(JSON.parse(kv.store.get('hb:restore-drill')!)).toMatchObject({ ok: false, detail: null });
     expect(telegram).toEqual(['[monitor] 🔴 restore-drill run failed']);
+  });
+
+  it('skips the KV write for a good run while the last good record is younger than half its max age', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-12T12:00:00Z'));
+    // job-capture: maxAgeHours 13, so records younger than 6.5 h are kept
+    await kv.put('hb:job-capture', JSON.stringify({ at: '2026-11-12T07:00:00Z', ok: true }));
+    kv.puts = [];
+    expect(await (await call(beat('job-capture', { ok: true }))).json()).toEqual({ recorded: true });
+    expect(kv.puts).toEqual([]);
+    vi.setSystemTime(new Date('2026-11-12T13:31:00Z')); // 6.5 h + 1 min after the record
+    await call(beat('job-capture', { ok: true }));
+    expect(kv.puts).toEqual(['hb:job-capture']);
+  });
+
+  it('always writes a failed run and the first good run after it', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-12T12:00:00Z'));
+    await kv.put('hb:job-capture', JSON.stringify({ at: '2026-11-12T11:59:00Z', ok: true }));
+    kv.puts = [];
+    await call(beat('job-capture', { ok: false }));
+    await call(beat('job-capture', { ok: true }));
+    expect(kv.puts).toEqual(['hb:job-capture', 'hb:job-capture']);
+  });
+
+  it('bounds the failed-run text so Telegram accepts it', async () => {
+    await call(beat('db-backup', { ok: false, failed: ['x'.repeat(5000)] }));
+    expect(telegram.length).toBe(1);
+    expect(telegram[0].length).toBeLessThanOrEqual(4096);
+    expect([...kv.store.keys()].some((k) => k.startsWith('hbalert:'))).toBe(false);
   });
 
   it('parks the alert under its own key when Telegram is down', async () => {
@@ -318,6 +354,35 @@ describe('scheduled', () => {
     await runCron('2-59/5 * * * *');
     expect(telegram).toEqual([`[monitor] 🔴 ${target.name} (HTTP 503)`]);
     expect(JSON.parse(kv.store.get('state:1')!).pendingAlerts).toEqual([]);
+  });
+
+  it('a parked alert Telegram refuses does not block the next one', async () => {
+    vi.setSystemTime(new Date('2026-10-23T10:07:00Z'));
+    for (const h of HEARTBEATS) await kv.put(`hb:${h.job}`, JSON.stringify({ at: '2026-10-23T10:00:00Z', ok: true }));
+    await kv.put('hbalert:a:1:a', '🔴 REFUSE me');
+    await kv.put('hbalert:b:1:b', '🔴 job-b run failed');
+    await runCron('*/5 * * * *');
+    expect(telegram).toContain('[monitor] 🔴 job-b run failed');
+    expect(kv.store.has('hbalert:b:1:b')).toBe(false);
+  });
+
+  it('writes an unchanged shard state at most every 10 minutes, and at once on any real change', async () => {
+    const target = targetsForShard(TARGETS, 1, SHARDS).find((t) => !t.sleeps)!;
+    const writes = () => kv.puts.filter((k) => k === 'state:1').length;
+    vi.setSystemTime(new Date('2026-10-23T10:07:00Z'));
+    await runCron('2-59/5 * * * *');
+    expect(writes()).toBe(1);
+    vi.setSystemTime(new Date('2026-10-23T10:12:00Z'));
+    await runCron('2-59/5 * * * *'); // only latency/checkedAt moved
+    expect(writes()).toBe(1);
+    vi.setSystemTime(new Date('2026-10-23T10:17:00Z'));
+    await runCron('2-59/5 * * * *'); // 10 min since the last write
+    expect(writes()).toBe(2);
+    failing = new Set([target.url]);
+    vi.setSystemTime(new Date('2026-10-23T10:22:00Z'));
+    await runCron('2-59/5 * * * *'); // a failure counter changed: write now
+    expect(writes()).toBe(3);
+    expect(JSON.parse(kv.store.get('state:1')!).targets[target.name].consecutiveFailures).toBe(1);
   });
 
   it('on shard 0, alerts once for a heartbeat that never reported and delivers parked alerts', async () => {

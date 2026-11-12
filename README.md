@@ -43,7 +43,11 @@ Cloudflare Worker that monitors your services 24/7 on the **free tier**.
   so each side reports when the other one stops. Secrets: `HEARTBEAT_TOKEN`, `TELEGRAM_BOT_TOKEN`,
   `TELEGRAM_CHAT_ID` (Infisical `/monitoring` and `/telegram` NOTI). It sends one message every hour while
   the problem lasts, with no recovery message. Run it by hand: `gh workflow run watchdog.yml`.
-- One KV write per shard run (about 576 a day), inside the free plan's 1,000 writes a day; each
+- KV writes are the tightest free-plan limit (1,000 a day for the whole account; measured 1,150 on
+  2026-11-11 before this change). A shard state is written when anything alerting depends on changed
+  (status, failure count, alert queue, stale watch) and otherwise every 10 minutes (about 288 a day
+  instead of 576; the cross-shard watch allows 30 minutes). A good heartbeat is rewritten only once its
+  record is half its window old; failed runs and the first good run after a failure always write. Each
   run also reads the other shard's state (one KV read) for seeding and the staleness watch.
 
 ## Deploy
@@ -90,7 +94,8 @@ SDK imports `node:async_hooks`.
 ## Cost
 
 **$0/month** on the Workers free plan: about 52 checks every 5 minutes is roughly 15,000 requests
-a day (limit 100,000) and about 576 KV writes a day (limit 1,000).
+a day (limit 100,000) and roughly 500–600 KV writes a day (limit 1,000): about 288 shard states plus
+heartbeats at half their previous rate. Check with the Cloudflare GraphQL `kvOperationsAdaptiveGroups` dataset.
 
 ## ที่มา
 

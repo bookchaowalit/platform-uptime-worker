@@ -64,6 +64,31 @@ const hbAlertKey = (job: string) => `${HB_ALERT_PREFIX}${job}:${Date.now()}:${cr
 const MAX_PARKED_PER_RUN = 3;
 /** Messages per run: probes (up to 30 per shard) + messages must stay under the 50-subrequest limit. */
 const MAX_MESSAGES_PER_RUN = 5;
+/** Telegram refuses more than 4,096 characters; `[monitor] ` is added in front. */
+const MAX_TEXT = 3900;
+/**
+ * KV writes are the free plan's tightest limit (1,000 a day for the whole account; 1,150 on
+ * 2026-11-11). An unchanged good heartbeat is rewritten only once its record is half its window old,
+ * and an unchanged shard state only every 10 minutes (the cross-shard watch allows 30).
+ */
+const HEARTBEAT_REWRITE_FRACTION = 0.5;
+const STATE_REWRITE_MS = 10 * 60_000;
+
+function bounded(text: string): string {
+  return text.length <= MAX_TEXT ? text : `${text.slice(0, MAX_TEXT - 12)}… (cut)`;
+}
+
+/** The parts of a shard state that alerting depends on: probe latency and time are left out. */
+function essence(state: ShardState): string {
+  const targets = Object.fromEntries(
+    Object.entries(state.targets)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([name, t]) => [name, { status: t.status, consecutiveFailures: t.consecutiveFailures, since: t.since,
+        lastAlertAt: t.lastAlertAt, error: t.error }]),
+  );
+  return JSON.stringify({ targets, pendingAlerts: state.pendingAlerts, staleWatch: state.staleWatch,
+    watchSince: state.watchSince });
+}
 const PUBLIC_STATUS_CACHE_SECONDS = 60;
 
 async function readShard(env: Env, shard: number): Promise<ShardState> {
@@ -77,6 +102,7 @@ async function readShard(env: Env, shard: number): Promise<ShardState> {
     pendingAlerts: state.pendingAlerts ?? [],
     staleWatch: state.staleWatch ?? {},
     watchSince: state.watchSince,
+    writtenAt: state.writtenAt,
   };
 }
 
@@ -190,13 +216,18 @@ async function handleHeartbeat(request: Request, env: Env, url: URL): Promise<Re
     detail = null;
   }
   const ok = typeof detail === 'object' && detail !== null && (detail as { ok?: unknown }).ok === true;
-  const record: HeartbeatRecord = { at: new Date().toISOString(), ok, detail };
-  await env.MONITOR_KV.put(heartbeatKey(job), JSON.stringify(record));
+  const now = new Date();
+  const record: HeartbeatRecord = { at: now.toISOString(), ok, detail };
+  const spec = HEARTBEATS.find((h) => h.job === job)!;
+  const last = ok ? await env.MONITOR_KV.get<HeartbeatRecord>(heartbeatKey(job), 'json') : null;
+  const fresh = last?.ok === true &&
+    now.getTime() - Date.parse(last.at) < spec.maxAgeHours * HEARTBEAT_REWRITE_FRACTION * 3_600_000;
+  if (!fresh) await env.MONITOR_KV.put(heartbeatKey(job), JSON.stringify(record));
 
   if (!ok) {
     const failed = (detail as { failed?: unknown } | null)?.failed;
     const list = Array.isArray(failed) && failed.length ? `: ${failed.join(', ')}` : '';
-    const text = `🔴 ${job} run failed${list}`;
+    const text = bounded(`🔴 ${job} run failed${list}`);
     // If Telegram is down, park the alert under its own key; the shard 0 cron retries it.
     if (!(await sendTelegram(env, text))) await env.MONITOR_KV.put(hbAlertKey(job), text);
   }
@@ -226,7 +257,8 @@ async function runShard(env: Env, shard: number, opts: { readOnly: boolean }) {
   if (transitions.length) fresh.push(...formatTransitions(transitions, now).split('\n'));
 
   if (opts.readOnly) {
-    return { shard, checked: results.length, transitions, pendingAlerts: previous.pendingAlerts.length, readOnly: true, timestamp: now.toISOString() };
+    return { shard, checked: results.length, results, transitions, pendingAlerts: previous.pendingAlerts.length, readOnly: true,
+      timestamp: now.toISOString() };
   }
 
   // Shard 0 also watches the scheduled jobs.
@@ -259,7 +291,9 @@ async function runShard(env: Env, shard: number, opts: { readOnly: boolean }) {
 
   // The queue is durable before anything that would suppress regenerating an alert is written.
   const next: ShardState = { targets: state, pendingAlerts, staleWatch: stale.watch, watchSince };
-  await env.MONITOR_KV.put(stateKey(shard), JSON.stringify(next));
+  const changed = essence(next) !== essence(previous);
+  const due = !previous.writtenAt || now.getTime() - Date.parse(previous.writtenAt) >= STATE_REWRITE_MS;
+  if (changed || due) await env.MONITOR_KV.put(stateKey(shard), JSON.stringify({ ...next, writtenAt: now.toISOString() }));
   await Promise.all(staleMarks.map((job) => env.MONITOR_KV.put(staleKey(job), now.toISOString())));
 
   // Parked failed-run alerts: each key is deleted only after Telegram accepted that alert.
@@ -268,7 +302,8 @@ async function runShard(env: Env, shard: number, opts: { readOnly: boolean }) {
     for (const { name } of listed.keys) {
       const text = await env.MONITOR_KV.get(name);
       if (text === null) continue;
-      if (!(await sendTelegram(env, text))) break;
+      // One refused alert must not hold back the others; it stays parked for the next run.
+      if (!(await sendTelegram(env, bounded(text)))) continue;
       await env.MONITOR_KV.delete(name);
     }
   }
