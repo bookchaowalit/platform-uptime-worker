@@ -28,6 +28,7 @@ export const STATIC_SITES: string[] = [
   'https://deeplinks.bookchaowalit.com/',
   'https://design.bookchaowalit.com/',
   'https://devhub.bookchaowalit.com/',
+  'https://devtools-vr-starter.vercel.app/',
   'https://digital-products.bookchaowalit.com/',
   'https://donation-tip-jar.bookchaowalit.com/',
   'https://energy.bookchaowalit.com/',
