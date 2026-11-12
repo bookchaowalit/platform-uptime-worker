@@ -232,7 +232,8 @@ export const HEARTBEATS: HeartbeatSpec[] = [
   // Dependency vulnerability digest (platform-vuln-digest `digest` workflow, jobs queue daily at 01:17 UTC).
   // 30 h = one missed day plus six hours; ok:false (sweep, R2 or Telegram failed) alerts at once.
   { job: 'vuln-digest', maxAgeHours: 30 },
-  // Attack detection (platform-security-signals `signals` workflow, jobs queue every 15 min, SPEC-001).
+  // Attack detection (platform-security-signals `signals` workflow, jobs queue every 15 min, SPEC-001);
+  // a good run heartbeats once an hour (KV write budget), a failed run every time.
   // 2 h = several missed or queued dispatches; ok:false (a source, R2 or Telegram failed) alerts at once.
   { job: 'security-signals', maxAgeHours: 2 },
   // External watchdog of this Worker (this repo's `watchdog` workflow, GitHub-hosted, hourly at :17,
