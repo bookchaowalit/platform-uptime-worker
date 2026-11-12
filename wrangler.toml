@@ -13,7 +13,7 @@ routes = [{ pattern = "monitor.bookchaowalit.com", custom_domain = true }]
 # Two cron triggers, one per shard (see SHARD_CRONS in src/worker.ts): each runs every 5 minutes,
 # offset by 2 minutes, and checks half of the targets.
 [triggers]
-crons = ["*/5 * * * *", "2-59/5 * * * *", "0 1 * * *"]  # the last one: daily gateway report only
+crons = ["*/5 * * * *", "2-59/5 * * * *", "*/10 1 * * *"]  # the last one: daily gateway report (retries within 01:xx)
 
 # Target state and job heartbeats.
 [[kv_namespaces]]

@@ -9,7 +9,7 @@ const GRAPHQL = 'https://api.cloudflare.com/client/v4/graphql';
 const ROUTE = /^\/v1\/([a-z][a-z0-9-]{1,62})(?:\/|$)/;
 export const REPORT_HOUR_UTC = 1; // 08:00 Asia/Bangkok
 // Its own cron (wrangler.toml), so the report never spends a probe shard's 50-subrequest budget.
-export const REPORT_CRON = '0 1 * * *';
+export const REPORT_CRON = '*/10 1 * * *'; // every 10 min in the report hour: a failed run retries, KV keeps it daily
 export const MAX_GROUPS = 10000;
 const ALERT_5XX_SHARE = 0.02;
 const ALERT_5XX_MIN = 5;
