@@ -8,6 +8,9 @@ export const GATEWAY_HOST = 'gateway.bookchaowalit.com';
 const GRAPHQL = 'https://api.cloudflare.com/client/v4/graphql';
 const ROUTE = /^\/v1\/([a-z][a-z0-9-]{1,62})(?:\/|$)/;
 export const REPORT_HOUR_UTC = 1; // 08:00 Asia/Bangkok
+// Its own cron (wrangler.toml), so the report never spends a probe shard's 50-subrequest budget.
+export const REPORT_CRON = '0 1 * * *';
+export const MAX_GROUPS = 10000;
 const ALERT_5XX_SHARE = 0.02;
 const ALERT_5XX_MIN = 5;
 
@@ -43,7 +46,7 @@ export function aggregate(rows: Row[]): Map<string, RouteCounts> {
   return out;
 }
 
-export function format(day: string, counts: Map<string, RouteCounts>): { text: string; alert: boolean } {
+export function format(day: string, counts: Map<string, RouteCounts>, truncated = false): { text: string; alert: boolean } {
   let total = 0, errors5 = 0;
   const lines: string[] = [];
   const routes = [...counts.entries()].sort((a, b) => b[1].total - a[1].total);
@@ -59,12 +62,14 @@ export function format(day: string, counts: Map<string, RouteCounts>): { text: s
   const head = `${alert ? '🔴 ALERT ' : ''}gateway ${day} (24 h): ${total} requests, 5xx ${errors5}` +
     ` (${total ? ((errors5 / total) * 100).toFixed(1) : '0.0'}%), ${counts.size} routes`;
   const body = lines.length ? lines.slice(0, 30).join('\n') : 'every route answered without errors';
-  return { text: `${head}\n${body}`, alert };
+  // At the group cap the counts are a lower bound: say so instead of reporting a quiet day.
+  const note = truncated ? `\n⚠ incomplete: ${MAX_GROUPS} analytics groups returned (cap), counts are a lower bound` : '';
+  return { text: `${head}\n${body}${note}`, alert: alert || truncated };
 }
 
 export async function fetchRows(env: ReportEnv, since: Date, until: Date, fetchImpl: typeof fetch = fetch): Promise<Row[]> {
   const query = `query($z:String!,$s:Time!,$u:Time!){ viewer { zones(filter:{zoneTag:$z}) {
-    httpRequestsAdaptiveGroups(limit:10000, filter:{datetime_geq:$s, datetime_lt:$u, clientRequestHTTPHost:"${GATEWAY_HOST}"})
+    httpRequestsAdaptiveGroups(limit:${MAX_GROUPS}, filter:{datetime_geq:$s, datetime_lt:$u, clientRequestHTTPHost:"${GATEWAY_HOST}"})
     { count dimensions { edgeResponseStatus clientRequestPath } } } } }`;
   const response = await fetchImpl(GRAPHQL, {
     method: 'POST', signal: AbortSignal.timeout(20_000),
@@ -74,7 +79,9 @@ export async function fetchRows(env: ReportEnv, since: Date, until: Date, fetchI
   if (!response.ok) throw new Error(`analytics answered ${response.status}`);
   const data = (await response.json()) as { errors?: unknown[]; data?: { viewer: { zones: { httpRequestsAdaptiveGroups: Row[] }[] } } };
   if (data.errors?.length || !data.data) throw new Error('analytics query failed');
-  return data.data.viewer.zones[0]?.httpRequestsAdaptiveGroups ?? [];
+  const zone = data.data.viewer.zones[0];
+  if (!zone) throw new Error('analytics zone not found'); // a wrong zone id or token scope, not "no traffic"
+  return zone.httpRequestsAdaptiveGroups ?? [];
 }
 
 /** Sends the report at most once per UTC day, in the report hour; returns what happened. */
@@ -87,7 +94,7 @@ export async function maybeGatewayReport(env: ReportEnv, now: Date, send: (text:
   if (await env.MONITOR_KV.get(key)) return 'skipped';
   try {
     const rows = await fetchRows(env, new Date(now.getTime() - 24 * 3600_000), now, fetchImpl);
-    const { text } = format(day, aggregate(rows));
+    const { text } = format(day, aggregate(rows), rows.length >= MAX_GROUPS);
     if (!(await send(text))) return 'failed';
     await env.MONITOR_KV.put(key, '1', { expirationTtl: 3 * 86400 });
     return 'sent';

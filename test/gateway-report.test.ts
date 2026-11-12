@@ -51,4 +51,15 @@ describe('gateway report', () => {
     expect(await maybeGatewayReport(env, new Date('2026-11-12T01:00:00Z'), async () => true, down)).toBe('failed');
     expect((env.MONITOR_KV as unknown as { store: Map<string, string> }).store.size).toBe(0);
   });
+
+  it('flags a capped result and refuses a missing zone', async () => {
+    const many = Array.from({ length: 10000 }, (_, i) => row(200, `/v1/r${i % 3}x/a`));
+    const { text, alert } = format('d', aggregate(many), true);
+    expect(text).toContain('incomplete');
+    expect(alert).toBe(true);
+    const env = { MONITOR_KV: kv(), GATEWAY_REPORT_CF_TOKEN: 't', GATEWAY_REPORT_ZONE_ID: 'z' };
+    const noZone = (async () => Response.json({ data: { viewer: { zones: [] } } })) as typeof fetch;
+    expect(await maybeGatewayReport(env, new Date('2026-11-12T01:00:00Z'), async () => true, noZone)).toBe('failed');
+  });
 });
+

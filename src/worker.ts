@@ -25,7 +25,7 @@ import {
 import { HEARTBEATS, SHARDS, TARGETS, type Target } from './targets';
 import { withOptionalSentry, type WorkerHandler } from './sentry';
 import { STATUS_PAGE, STATUS_PAGE_HEADERS } from './status-page';
-import { maybeGatewayReport } from './gateway-report';
+import { maybeGatewayReport, REPORT_CRON } from './gateway-report';
 
 export interface Env {
   MONITOR_KV: KVNamespace;
@@ -103,10 +103,13 @@ const handler: WorkerHandler<Env> = {
   },
 
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
+    // The daily gateway report has its own cron, so it never spends a probe shard's subrequest budget.
+    if (event.cron === REPORT_CRON) {
+      ctx.waitUntil(maybeGatewayReport(env, new Date(event.scheduledTime), (text) => sendTelegram(env, text)));
+      return;
+    }
     const shard = Math.max(0, SHARD_CRONS.indexOf(event.cron));
     ctx.waitUntil(runShard(env, shard, { readOnly: false }));
-    // Once a day (shard 0, report hour): the edge gateway report. Its own KV key keeps it daily.
-    if (shard === 0) ctx.waitUntil(maybeGatewayReport(env, new Date(event.scheduledTime), (text) => sendTelegram(env, text)));
   },
 };
 
