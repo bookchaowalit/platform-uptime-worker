@@ -31,6 +31,10 @@ describe('TARGETS', () => {
     expect(TARGETS.find((t) => t.name === 'meta-capture')?.url).toBe('https://meta-capture.bookchaowalit.workers.dev/health');
   });
 
+  it('probes the AI media worker on /healthz (interface-coverage ops baseline)', () => {
+    expect(TARGETS.find((t) => t.name === 'ai-media-worker')?.url).toBe('https://solo-ai-media-worker.bookchaowalit.workers.dev/healthz');
+  });
+
   it('uses only the own and client groups', () => {
     for (const t of TARGETS) expect(['own', 'client']).toContain(t.group);
     expect(TARGETS.some((t) => t.group === 'own')).toBe(true);

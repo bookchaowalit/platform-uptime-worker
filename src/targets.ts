@@ -114,6 +114,8 @@ const ALL_TARGETS: Target[] = [
   { name: 'meeting-minutes-api', url: railway('meeting-minutes-api-production', '/healthz'), group: 'own' },
   // Meta share-to-Telegram capture webhook (data-lake-pipelines workers/meta-capture).
   { name: 'meta-capture', url: 'https://meta-capture.bookchaowalit.workers.dev/health', group: 'own' },
+  // AI gateway media worker (platform-ai-gateway-api workers/media-worker, SPEC-003).
+  { name: 'ai-media-worker', url: 'https://solo-ai-media-worker.bookchaowalit.workers.dev/healthz', group: 'own' },
   { name: 'bookchaowalit.com', url: 'https://bookchaowalit.com', group: 'own' },
   { name: 'tracking.bookchaowalit.com', url: 'https://tracking.bookchaowalit.com', group: 'own' },
   // Clients (hosted by us)
