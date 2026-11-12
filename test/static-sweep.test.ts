@@ -100,5 +100,14 @@ describe('SPEC-003 static sweep', () => {
     expect(lines.some((l) => l.includes('NOT sent'))).toBe(true);
     expect(lines.join('\n')).not.toContain('tg');
   });
+  it('releases every response body before the next site starts (Codex review)', async () => {
+    let cancelled = 0;
+    const f = (async () => {
+      const body = new ReadableStream({ cancel() { cancelled++; } });
+      return new Response(body, { status: 200 });
+    }) as typeof fetch;
+    await checkSite('https://a/', f);
+    expect(cancelled).toBe(1);
+  });
 });
 

@@ -95,6 +95,9 @@ function render(data) {
   document.getElementById('updated').textContent = when
     ? 'อัปเดตล่าสุด ' + when.toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' }) : '';
   const box = document.getElementById('groups');
+  // Keep what the viewer opened, and their keyboard focus, across the 60 s refresh.
+  const openGroups = new Set([...box.querySelectorAll('section[data-group] details[open]')].map(d => d.closest('section').dataset.group));
+  const focusedGroup = box.contains(document.activeElement) ? document.activeElement.closest('section[data-group]')?.dataset.group : null;
   box.replaceChildren();
   for (const g of GROUPS) {
     const members = results.filter(r => productFor(r.name) === g.id);
@@ -105,7 +108,9 @@ function render(data) {
     if (g.en !== g.th) h.append(el('span', 'en', g.en));
     const badge = el('span', 'badge ' + gs, LABEL[gs]);
     const head = el('div', 'group-head'); head.append(h, badge); sec.append(head);
-    const det = el('details'); det.append(el('summary', null, 'บริการ ' + members.length + ' รายการ · ' + members.length + ' services'));
+    sec.dataset.group = g.id;
+    const det = el('details'); det.open = openGroups.has(g.id);
+    const sum = el('summary', null, 'บริการ ' + members.length + ' รายการ · ' + members.length + ' services'); det.append(sum);
     const ul = el('ul');
     for (const m of members) {
       const s = st(m);
@@ -114,6 +119,7 @@ function render(data) {
       ul.append(li);
     }
     det.append(ul); sec.append(det); box.append(sec);
+    if (focusedGroup === g.id) sum.focus({ preventScroll: true });
   }
 }
 function load() {

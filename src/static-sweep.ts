@@ -28,6 +28,8 @@ async function once(url: string, method: string, fetchFn: typeof fetch): Promise
     headers: { 'user-agent': 'bookchaowalit-static-sweep/1 (+https://monitor.bookchaowalit.com/)' },
     signal: AbortSignal.timeout(SITE_TIMEOUT_MS),
   });
+  // Release the body before the pool starts the next site: only the status matters here.
+  await res.body?.cancel().catch(() => {});
   return res.status;
 }
 

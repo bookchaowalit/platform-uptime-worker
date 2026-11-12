@@ -68,4 +68,10 @@ describe('SPEC-002 status page', () => {
     // The page inlines the serialised rules, so the page and the unit tests cannot drift apart.
     for (const g of GROUPS) expect(STATUS_PAGE).toContain(JSON.stringify(g.id));
   });
+  it('the browser script keeps open details and focus across the 60 s refresh (Codex review)', () => {
+    expect(STATUS_PAGE).toContain('data-group');
+    expect(STATUS_PAGE).toMatch(/openGroups/);
+    expect(STATUS_PAGE).toMatch(/activeElement/);
+  });
 });
+
