@@ -197,6 +197,15 @@ export function applyResults(
  * Heartbeats that are overdue. `staleAlertedAt` is kept under its own key so the cron never
  * rewrites a heartbeat record (a POST landing between read and write would otherwise be lost).
  */
+/**
+ * A good heartbeat younger than this is not rewritten (KV write budget). The stored record can then
+ * be up to this much older than the latest report, so staleness adds it back: an alert still means
+ * "no report for maxAgeHours", never less (it may come up to this much later).
+ */
+export function heartbeatGraceHours(spec: HeartbeatSpec): number {
+  return Math.min(spec.maxAgeHours * 0.5, 1);
+}
+
 export function staleHeartbeats(
   specs: HeartbeatSpec[],
   records: Record<string, HeartbeatRecord | null>,
@@ -205,7 +214,7 @@ export function staleHeartbeats(
 ): HeartbeatSpec[] {
   return specs.filter((spec) => {
     const record = records[spec.job];
-    if (record && hoursBetween(record.at, now) < spec.maxAgeHours) return false;
+    if (record && hoursBetween(record.at, now) < spec.maxAgeHours + (record.ok ? heartbeatGraceHours(spec) : 0)) return false;
     const alerted = staleAlertedAt[spec.job];
     // An alert sent before the latest report belongs to an earlier missed window.
     const alertedThisWindow = alerted && (!record || alerted > record.at);

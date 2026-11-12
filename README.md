@@ -47,7 +47,9 @@ Cloudflare Worker that monitors your services 24/7 on the **free tier**.
   2026-11-11 before this change). A shard state is written when anything alerting depends on changed
   (status, failure count, alert queue, stale watch) and otherwise every 10 minutes (about 288 a day
   instead of 576; the cross-shard watch allows 30 minutes). A good heartbeat is rewritten only once its
-  record is half its window old; failed runs and the first good run after a failure always write. Each
+  record is older than its grace (half its window, at most 1 h), and staleness adds that grace back, so an
+  alert still means no report for the full window (it may come up to 1 h later). Failed runs and the first
+  good run after a failure always write. Each
   run also reads the other shard's state (one KV read) for seeding and the staleness watch.
 
 ## Deploy
@@ -95,7 +97,7 @@ SDK imports `node:async_hooks`.
 
 **$0/month** on the Workers free plan: about 52 checks every 5 minutes is roughly 15,000 requests
 a day (limit 100,000) and roughly 500–600 KV writes a day (limit 1,000): about 288 shard states plus
-heartbeats at half their previous rate. Check with the Cloudflare GraphQL `kvOperationsAdaptiveGroups` dataset.
+heartbeats, fewer for jobs that report more often than their grace. Check with the Cloudflare GraphQL `kvOperationsAdaptiveGroups` dataset.
 
 ## ที่มา
 

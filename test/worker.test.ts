@@ -264,15 +264,15 @@ describe('/heartbeat/<job>', () => {
     expect(telegram).toEqual(['[monitor] 🔴 restore-drill run failed']);
   });
 
-  it('skips the KV write for a good run while the last good record is younger than half its max age', async () => {
+  it('skips the KV write for a good run while the last good record is younger than its grace', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-11-12T12:00:00Z'));
-    // job-capture: maxAgeHours 13, so records younger than 6.5 h are kept
-    await kv.put('hb:job-capture', JSON.stringify({ at: '2026-11-12T07:00:00Z', ok: true }));
+    // job-capture: maxAgeHours 13, grace min(6.5 h, 1 h) = 1 h
+    await kv.put('hb:job-capture', JSON.stringify({ at: '2026-11-12T11:20:00Z', ok: true }));
     kv.puts = [];
     expect(await (await call(beat('job-capture', { ok: true }))).json()).toEqual({ recorded: true });
     expect(kv.puts).toEqual([]);
-    vi.setSystemTime(new Date('2026-11-12T13:31:00Z')); // 6.5 h + 1 min after the record
+    vi.setSystemTime(new Date('2026-11-12T12:21:00Z')); // 1 h + 1 min after the record
     await call(beat('job-capture', { ok: true }));
     expect(kv.puts).toEqual(['hb:job-capture']);
   });

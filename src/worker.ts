@@ -12,6 +12,7 @@ import {
   mapWithConcurrency,
   mergeShardStates,
   handoverStates,
+  heartbeatGraceHours,
   newestStates,
   queueAlerts,
   staleHeartbeats,
@@ -68,10 +69,10 @@ const MAX_MESSAGES_PER_RUN = 5;
 const MAX_TEXT = 3900;
 /**
  * KV writes are the free plan's tightest limit (1,000 a day for the whole account; 1,150 on
- * 2026-11-11). An unchanged good heartbeat is rewritten only once its record is half its window old,
+ * 2026-11-11). An unchanged good heartbeat is rewritten only once its record is older than its grace
+ * (heartbeatGraceHours: half its window, at most 1 h; staleness adds the grace back),
  * and an unchanged shard state only every 10 minutes (the cross-shard watch allows 30).
  */
-const HEARTBEAT_REWRITE_FRACTION = 0.5;
 const STATE_REWRITE_MS = 10 * 60_000;
 
 function bounded(text: string): string {
@@ -220,8 +221,7 @@ async function handleHeartbeat(request: Request, env: Env, url: URL): Promise<Re
   const record: HeartbeatRecord = { at: now.toISOString(), ok, detail };
   const spec = HEARTBEATS.find((h) => h.job === job)!;
   const last = ok ? await env.MONITOR_KV.get<HeartbeatRecord>(heartbeatKey(job), 'json') : null;
-  const fresh = last?.ok === true &&
-    now.getTime() - Date.parse(last.at) < spec.maxAgeHours * HEARTBEAT_REWRITE_FRACTION * 3_600_000;
+  const fresh = last?.ok === true && now.getTime() - Date.parse(last.at) < heartbeatGraceHours(spec) * 3_600_000;
   if (!fresh) await env.MONITOR_KV.put(heartbeatKey(job), JSON.stringify(record));
 
   if (!ok) {
