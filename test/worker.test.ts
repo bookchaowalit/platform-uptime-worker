@@ -294,6 +294,14 @@ describe('/heartbeat/<job>', () => {
     expect([...kv.store.keys()].some((k) => k.startsWith('hbalert:'))).toBe(false);
   });
 
+  it('still alerts a failed run when KV refuses the heartbeat write', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(kv, 'put').mockRejectedValue(new Error('KV PUT failed: 429 Too Many Requests'));
+    const response = await call(beat('db-backup', { ok: false }));
+    expect(response.status).toBe(503);
+    expect(telegram).toEqual(['[monitor] 🔴 db-backup run failed']);
+  }, 10_000);
+
   it('never logs the bot token when the Telegram call throws', async () => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.stubGlobal('fetch', vi.fn(async () => {

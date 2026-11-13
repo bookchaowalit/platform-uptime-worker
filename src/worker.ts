@@ -225,16 +225,31 @@ async function handleHeartbeat(request: Request, env: Env, url: URL): Promise<Re
   const spec = HEARTBEATS.find((h) => h.job === job)!;
   const last = ok ? await env.MONITOR_KV.get<HeartbeatRecord>(heartbeatKey(job), 'json') : null;
   const fresh = last?.ok === true && now.getTime() - Date.parse(last.at) < heartbeatGraceHours(spec) * 3_600_000;
-  if (!fresh) await env.MONITOR_KV.put(heartbeatKey(job), JSON.stringify(record));
+  // KV allows one write per second per key and can refuse (429); a refused write must never stop the
+  // failed-run alert below, so it is retried once and then reported as not recorded.
+  const stored = fresh || (await putRetry(env, heartbeatKey(job), JSON.stringify(record)));
 
   if (!ok) {
     const failed = (detail as { failed?: unknown } | null)?.failed;
     const list = Array.isArray(failed) && failed.length ? `: ${failed.join(', ')}` : '';
     const text = bounded(`🔴 ${job} run failed${list}`);
     // If Telegram is down, park the alert under its own key; the shard 0 cron retries it.
-    if (!(await sendTelegram(env, text))) await env.MONITOR_KV.put(hbAlertKey(job), text);
+    if (!(await sendTelegram(env, text))) await putRetry(env, hbAlertKey(job), text);
   }
-  return Response.json({ recorded: true });
+  return stored ? Response.json({ recorded: true }) : Response.json({ recorded: false }, { status: 503 });
+}
+
+async function putRetry(env: Env, key: string, value: string): Promise<boolean> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      await env.MONITOR_KV.put(key, value);
+      return true;
+    } catch (error) {
+      console.error('KV write failed', error instanceof Error ? error.name : 'unknown error');
+      if (attempt === 0) await new Promise((resolve) => setTimeout(resolve, 1100));
+    }
+  }
+  return false;
 }
 
 async function runShard(env: Env, shard: number, opts: { readOnly: boolean; scheduledAt?: Date }) {
