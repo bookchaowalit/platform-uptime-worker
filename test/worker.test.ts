@@ -302,6 +302,19 @@ describe('/heartbeat/<job>', () => {
     expect(telegram).toEqual(['[monitor] 🔴 db-backup run failed']);
   }, 10_000);
 
+  it('answers 503 when a failed-run alert could be neither sent nor parked', async () => {  // review on 0f3e222
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    telegramUp = false;
+    const put = kv.put.bind(kv);
+    vi.spyOn(kv, 'put').mockImplementation(async (k: string, v: string) => {
+      if (k.startsWith('hbalert:')) throw new Error('KV PUT failed: 429');
+      return put(k, v);
+    });
+    const response = await call(beat('db-backup', { ok: false }));
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ recorded: true, alerted: false });
+  }, 10_000);
+
   it('never logs the bot token when the Telegram call throws', async () => {
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.stubGlobal('fetch', vi.fn(async () => {
@@ -389,6 +402,18 @@ describe('scheduled', () => {
     await runCron('*/5 * * * *');
     expect(telegram).toContain('[monitor] 🔴 job-b run failed');
     expect(kv.store.has('hbalert:b:1:b')).toBe(false);
+  });
+
+  it('more refused parked alerts than one run tries cannot starve the ones after them', async () => {  // review on 0f3e222
+    for (const h of HEARTBEATS) await kv.put(`hb:${h.job}`, JSON.stringify({ at: '2026-10-23T10:00:00Z', ok: true }));
+    for (const k of ['a', 'b', 'c']) await kv.put(`hbalert:${k}:1:${k}`, '🔴 REFUSE me');
+    await kv.put('hbalert:d:1:d', '🔴 job-d run failed');
+    for (const minute of ['07', '12', '17', '22']) {  // four runs, a new offset each
+      vi.setSystemTime(new Date(`2026-10-23T10:${minute}:00Z`));
+      await runCron('*/5 * * * *');
+    }
+    expect(telegram).toContain('[monitor] 🔴 job-d run failed');
+    expect(kv.store.has('hbalert:d:1:d')).toBe(false);
   });
 
   it('writes an unchanged shard state at most every 10 minutes, and at once on any real change', async () => {

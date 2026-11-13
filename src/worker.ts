@@ -64,6 +64,8 @@ const hbAlertKey = (job: string) => `${HB_ALERT_PREFIX}${job}:${Date.now()}:${cr
  * it never depends on the shard queue. 3 per run keeps deletes under the free plan's 1,000/day.
  */
 const MAX_PARKED_PER_RUN = 3;
+/** Parked keys read per run to pick from (list is a read, not a KV write). */
+const PARKED_SCAN = 100;
 /** Messages per run: probes (up to 30 per shard) + messages must stay under the 50-subrequest limit. */
 const MAX_MESSAGES_PER_RUN = 5;
 /** Telegram refuses more than 4,096 characters; `[monitor] ` is added in front. */
@@ -234,7 +236,10 @@ async function handleHeartbeat(request: Request, env: Env, url: URL): Promise<Re
     const list = Array.isArray(failed) && failed.length ? `: ${failed.join(', ')}` : '';
     const text = bounded(`🔴 ${job} run failed${list}`);
     // If Telegram is down, park the alert under its own key; the shard 0 cron retries it.
-    if (!(await sendTelegram(env, text))) await putRetry(env, hbAlertKey(job), text);
+    // Neither sent nor parked: answer 503 so the job reports again instead of the alert vanishing.
+    if (!(await sendTelegram(env, text)) && !(await putRetry(env, hbAlertKey(job), text))) {
+      return Response.json({ recorded: stored, alerted: false }, { status: 503 });
+    }
   }
   return stored ? Response.json({ recorded: true }) : Response.json({ recorded: false }, { status: 503 });
 }
@@ -319,8 +324,12 @@ async function runShard(env: Env, shard: number, opts: { readOnly: boolean; sche
 
   // Parked failed-run alerts: each key is deleted only after Telegram accepted that alert.
   if (shard === 0 && !pendingAlerts.length) {
-    const listed = await env.MONITOR_KV.list({ prefix: HB_ALERT_PREFIX, limit: MAX_PARKED_PER_RUN });
-    for (const { name } of listed.keys) {
+    // List reads are cheap, writes are not (free plan): read a wider page and start at an offset that moves
+    // every run, so keys Telegram keeps refusing cannot hold back the ones after them (no cursor write).
+    const listed = await env.MONITOR_KV.list({ prefix: HB_ALERT_PREFIX, limit: PARKED_SCAN });
+    const offset = listed.keys.length ? Math.floor(now.getTime() / 300_000) % listed.keys.length : 0;
+    const turn = [...listed.keys.slice(offset), ...listed.keys.slice(0, offset)].slice(0, MAX_PARKED_PER_RUN);
+    for (const { name } of turn) {
       const text = await env.MONITOR_KV.get(name);
       if (text === null) continue;
       // One refused alert must not hold back the others; it stays parked for the next run.
