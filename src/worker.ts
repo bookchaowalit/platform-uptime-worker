@@ -64,8 +64,9 @@ const hbAlertKey = (job: string) => `${HB_ALERT_PREFIX}${job}:${Date.now()}:${cr
  * it never depends on the shard queue. 3 per run keeps deletes under the free plan's 1,000/day.
  */
 const MAX_PARKED_PER_RUN = 3;
-/** Parked keys read per run to pick from (list is a read, not a KV write). */
+/** Parked keys per list page, and pages per run (free plan: 1 000 list calls a day; 3 pages × 288 runs fits). */
 const PARKED_SCAN = 100;
+const PARKED_PAGES = 3;
 /** Messages per run: probes (up to 30 per shard) + messages must stay under the 50-subrequest limit. */
 const MAX_MESSAGES_PER_RUN = 5;
 /** Telegram refuses more than 4,096 characters; `[monitor] ` is added in front. */
@@ -326,9 +327,18 @@ async function runShard(env: Env, shard: number, opts: { readOnly: boolean; sche
   if (shard === 0 && !pendingAlerts.length) {
     // List reads are cheap, writes are not (free plan): read a wider page and start at an offset that moves
     // every run, so keys Telegram keeps refusing cannot hold back the ones after them (no cursor write).
-    const listed = await env.MONITOR_KV.list({ prefix: HB_ALERT_PREFIX, limit: PARKED_SCAN });
-    const offset = listed.keys.length ? Math.floor(now.getTime() / 300_000) % listed.keys.length : 0;
-    const turn = [...listed.keys.slice(offset), ...listed.keys.slice(0, offset)].slice(0, MAX_PARKED_PER_RUN);
+    const keys: { name: string }[] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < PARKED_PAGES; page++) {
+      const listed = await env.MONITOR_KV.list({ prefix: HB_ALERT_PREFIX, limit: PARKED_SCAN, cursor });
+      keys.push(...listed.keys);
+      cursor = listed.list_complete ? undefined : listed.cursor;
+      if (!cursor) break;
+    }
+    // More than the pages hold: say so (the rest wait until the first pages drain) instead of hiding it.
+    if (cursor) console.warn('parked alerts exceed the per-run scan', PARKED_SCAN * PARKED_PAGES);
+    const offset = keys.length ? Math.floor(now.getTime() / 300_000) % keys.length : 0;
+    const turn = [...keys.slice(offset), ...keys.slice(0, offset)].slice(0, MAX_PARKED_PER_RUN);
     for (const { name } of turn) {
       const text = await env.MONITOR_KV.get(name);
       if (text === null) continue;

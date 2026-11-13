@@ -31,9 +31,17 @@ class MemoryKV {
     this.store.delete(key);
   }
 
-  async list({ prefix = '', limit = 1000 }: { prefix?: string; limit?: number } = {}) {
-    const keys = [...this.store.keys()].filter((k) => k.startsWith(prefix)).slice(0, limit);
-    return { keys: keys.map((name) => ({ name })), list_complete: true, cacheStatus: null };
+  lists = 0;
+
+  // Sorted and paged like Cloudflare KV: the cursor is the offset of the next page.
+  async list({ prefix = '', limit = 1000, cursor }: { prefix?: string; limit?: number; cursor?: string } = {}) {
+    this.lists++;
+    const all = [...this.store.keys()].filter((k) => k.startsWith(prefix)).sort();
+    const from = cursor ? Number(cursor) : 0;
+    const keys = all.slice(from, from + limit);
+    const done = from + limit >= all.length;
+    return { keys: keys.map((name) => ({ name })), list_complete: done, cursor: done ? undefined : String(from + limit),
+      cacheStatus: null };
   }
 }
 
@@ -414,6 +422,21 @@ describe('scheduled', () => {
     }
     expect(telegram).toContain('[monitor] 🔴 job-d run failed');
     expect(kv.store.has('hbalert:d:1:d')).toBe(false);
+  });
+
+  it('parked alerts past the first list page are reached too', async () => {  // review on 3da5a95
+    for (const h of HEARTBEATS) await kv.put(`hb:${h.job}`, JSON.stringify({ at: '2026-10-23T10:00:00Z', ok: true }));
+    for (let n = 0; n < 150; n++) await kv.put(`hbalert:a:${String(n).padStart(3, '0')}:a`, '🔴 REFUSE me');
+    await kv.put('hbalert:z:1:z', '🔴 job-z run failed');  // sorts after every refused key
+    let delivered = false;
+    for (let run = 0; run < 160 && !delivered; run++) {
+      vi.setSystemTime(new Date(Date.parse('2026-10-23T10:07:00Z') + run * 300_000));
+      kv.lists = 0;
+      await runCron('*/5 * * * *');
+      expect(kv.lists).toBeLessThanOrEqual(4);  // 2 parked pages + at most one other list call
+      delivered = !kv.store.has('hbalert:z:1:z');
+    }
+    expect(delivered).toBe(true);
   });
 
   it('writes an unchanged shard state at most every 10 minutes, and at once on any real change', async () => {
