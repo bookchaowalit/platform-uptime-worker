@@ -304,9 +304,9 @@ describe('/heartbeat/<job>', () => {
 });
 
 describe('scheduled', () => {
-  const runCron = async (cron: string, env: Env = makeEnv()) => {
+  const runCron = async (cron: string, env: Env = makeEnv(), scheduledTime = Date.now()) => {
     const { ctx, settle } = makeCtx();
-    await worker.scheduled({ cron, scheduledTime: Date.now(), type: 'scheduled' } as ScheduledEvent, env, ctx);
+    await worker.scheduled({ cron, scheduledTime, type: 'scheduled' } as ScheduledEvent, env, ctx);
     await settle();
   };
 
@@ -323,6 +323,14 @@ describe('scheduled', () => {
     expect(Object.keys(state.targets).sort()).toEqual(due.map((t) => t.name).sort());
     expect(kv.store.has('state:0')).toBe(false);
     expect(telegram).toEqual([]);
+  });
+
+  it('picks the sleepers by the scheduled slot, so a late start still probes them', async () => {
+    vi.setSystemTime(new Date('2026-10-23T10:06:00Z')); // the :02 tick started 4 min late
+    await runCron('2-59/5 * * * *', makeEnv(), Date.parse('2026-10-23T10:02:00Z'));
+    const all = targetsForShard(TARGETS, 1, SHARDS);
+    expect(all.some((t) => t.sleeps)).toBe(true);
+    expect(probed.sort()).toEqual(all.map((t) => t.url).sort());
   });
 
   it('alerts after two failures in a row, then on recovery', async () => {

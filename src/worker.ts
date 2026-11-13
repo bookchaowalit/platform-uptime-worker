@@ -138,7 +138,8 @@ const handler: WorkerHandler<Env> = {
       return;
     }
     const shard = Math.max(0, SHARD_CRONS.indexOf(event.cron));
-    ctx.waitUntil(runShard(env, shard, { readOnly: false }));
+    // The slot comes from the cron's own time: a tick that starts late still probes its hourly sleepers.
+    ctx.waitUntil(runShard(env, shard, { readOnly: false, scheduledAt: new Date(event.scheduledTime) }));
   },
 };
 
@@ -236,10 +237,11 @@ async function handleHeartbeat(request: Request, env: Env, url: URL): Promise<Re
   return Response.json({ recorded: true });
 }
 
-async function runShard(env: Env, shard: number, opts: { readOnly: boolean }) {
+async function runShard(env: Env, shard: number, opts: { readOnly: boolean; scheduledAt?: Date }) {
   const now = new Date();
+  const slot = opts.scheduledAt ?? now;
   // Manual checks probe everything; the cron skips sleeping services outside their hourly slot.
-  const targets = targetsForShard(TARGETS, shard, SHARDS).filter((t) => opts.readOnly || isDue(t, now));
+  const targets = targetsForShard(TARGETS, shard, SHARDS).filter((t) => opts.readOnly || isDue(t, slot));
   const results = await mapWithConcurrency(targets, PROBE_CONCURRENCY, checkTarget);
 
   const previous = await readShard(env, shard);
