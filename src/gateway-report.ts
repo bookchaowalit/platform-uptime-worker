@@ -11,6 +11,8 @@ export const REPORT_HOUR_UTC = 1; // 08:00 Asia/Bangkok
 // Its own cron (wrangler.toml), so the report never spends a probe shard's 50-subrequest budget.
 export const REPORT_CRON = '*/10 1 * * *'; // every 10 min in the report hour: a failed run retries, KV keeps it daily
 export const MAX_GROUPS = 10000;
+/** Characters of route lines in one report; head, the cap note and the [monitor] prefix stay under 4 096. */
+export const BODY_MAX = 3300;
 const ALERT_5XX_SHARE = 0.02;
 const ALERT_5XX_MIN = 5;
 
@@ -61,7 +63,15 @@ export function format(day: string, counts: Map<string, RouteCounts>, truncated 
   const alert = errors5 >= ALERT_5XX_MIN && total > 0 && errors5 / total > ALERT_5XX_SHARE;
   const head = `${alert ? '🔴 ALERT ' : ''}gateway ${day} (24 h): ${total} requests, 5xx ${errors5}` +
     ` (${total ? ((errors5 / total) * 100).toFixed(1) : '0.0'}%), ${counts.size} routes`;
-  const body = lines.length ? lines.slice(0, 30).join('\n') : 'every route answered without errors';
+  const shown: string[] = [];
+  let size = 0;
+  for (const line of lines.slice(0, 30)) {  // also by length, so head and note always fit one message
+    if (size + line.length + 1 > BODY_MAX) break;
+    shown.push(line);
+    size += line.length + 1;
+  }
+  if (shown.length < lines.length) shown.push(`… ${lines.length - shown.length} more routes`);
+  const body = lines.length ? shown.join('\n') : 'every route answered without errors';
   // At the group cap the counts are a lower bound: say so instead of reporting a quiet day.
   const note = truncated ? `\n⚠ incomplete: ${MAX_GROUPS} analytics groups returned (cap), counts are a lower bound` : '';
   return { text: `${head}\n${body}${note}`, alert: alert || truncated };

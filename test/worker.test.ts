@@ -294,6 +294,15 @@ describe('/heartbeat/<job>', () => {
     expect([...kv.store.keys()].some((k) => k.startsWith('hbalert:'))).toBe(false);
   });
 
+  it('never logs the bot token when the Telegram call throws', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.stubGlobal('fetch', vi.fn(async () => {
+      throw new TypeError('fetch failed: https://api.telegram.org/bot123:test/sendMessage');
+    }));
+    await call(beat('db-backup', { ok: false }));
+    expect(JSON.stringify(errors.mock.calls)).not.toContain('123:test');
+  });
+
   it('parks the alert under its own key when Telegram is down', async () => {
     telegramUp = false;
     await call(beat('job-capture', { ok: false }));

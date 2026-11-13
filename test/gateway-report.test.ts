@@ -9,6 +9,15 @@ function kv() {
 }
 
 describe('gateway report', () => {
+  it('fits one Telegram message even with long route names and the cap note', () => {
+    const many = Array.from({ length: 40 }, (_, n) => [row(401, `/v1/${'r'.repeat(58)}${String(n).padStart(2, '0')}/x`), row(403, `/v1/${'r'.repeat(58)}${String(n).padStart(2, '0')}/x`),
+      row(429, `/v1/${'r'.repeat(58)}${String(n).padStart(2, '0')}/x`), row(503, `/v1/${'r'.repeat(58)}${String(n).padStart(2, '0')}/x`)]).flat();
+    const { text } = format('2026-11-12', aggregate(many), true);
+    expect(`[monitor] ${text}`.length).toBeLessThanOrEqual(4096);
+    expect(text).toContain('incomplete');
+    expect(text).toMatch(/… \d+ more routes/);
+  });
+
   it('reduces paths to their route and never keeps the tail', () => {
     expect(routeOf('/v1/crm-income/api/v1/crm/agency/workspace?x=secret')).toBe('crm-income');
     expect(routeOf('/v1/knowledge')).toBe('knowledge');

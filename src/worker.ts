@@ -352,12 +352,14 @@ async function sendTelegram(env: Env, text: string): Promise<boolean> {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       signal: AbortSignal.timeout(10_000),
-      body: JSON.stringify({ chat_id: env.TELEGRAM_CHAT_ID, text: `[monitor] ${text}`, disable_web_page_preview: true }),
+      // Bounded here too, so no caller can send a text Telegram refuses (limit 4 096).
+      body: JSON.stringify({ chat_id: env.TELEGRAM_CHAT_ID, text: `[monitor] ${bounded(text)}`, disable_web_page_preview: true }),
     });
     if (!response.ok) console.error('Telegram send failed', response.status);
     return response.ok;
   } catch (error) {
-    console.error('Telegram send failed', error instanceof Error ? error.message : error);
+    // Name only: a fetch error message can carry the request URL, which holds the bot token.
+    console.error('Telegram send failed', error instanceof Error ? error.name : 'unknown error');
     return false;
   }
 }
