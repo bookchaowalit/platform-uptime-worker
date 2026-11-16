@@ -233,20 +233,25 @@ async function handleHeartbeat(request: Request, env: Env, url: URL): Promise<Re
     console.error('KV read failed', error instanceof Error ? error.name : 'unknown error');
   }
 
-  if (ok && last && last.ok === false) await noteRecovery(env, job, now);
+  if (ok && last && last.ok === false) await noteRecovery(env, job, last.parked === true);
   // Alert on the first failed run of a streak only: the same failure every run is one problem, not many.
   // A different list of failed parts is new information and alerts again, and so does a failure whose
   // earlier alert was never delivered (alerted: false).
   const sameFailure =
     !ok && last?.ok === false && last.alerted !== false && failedList(last.detail) === failedList(detail);
   let alerted = true;
+  let parked = sameFailure && last?.parked === true;  // a suppressed run keeps its streak's delivery
   if (!ok && !sameFailure) {
     const list = failedList(detail);
     const text = bounded(`🔴 ${job} รันไม่ผ่าน${list ? `: ${list}` : ''}`);
     // If Telegram is down, park the alert under its own key; the shard 0 cron retries it.
-    alerted = (await sendTelegram(env, text)) || (await putRetry(env, hbAlertKey(job), text));
+    const sent = await sendTelegram(env, text);
+    parked = !sent && (await putRetry(env, hbAlertKey(job), text));
+    alerted = sent || parked;
   }
-  const record: HeartbeatRecord = ok ? { at: now.toISOString(), ok, detail } : { at: now.toISOString(), ok, detail, alerted };
+  const record: HeartbeatRecord = ok
+    ? { at: now.toISOString(), ok, detail }
+    : { at: now.toISOString(), ok, detail, alerted, ...(parked ? { parked } : {}) };
   const fresh = ok && last?.ok === true && now.getTime() - Date.parse(last.at) < heartbeatGraceHours(spec) * 3_600_000;
   // KV allows one write per second per key and can refuse (429); it is retried once and then reported
   // as not recorded.
@@ -258,31 +263,14 @@ async function handleHeartbeat(request: Request, env: Env, url: URL): Promise<Re
 
 /**
  * One line when a failing job passes again; best effort, a lost recovery note is not worth a retry.
- * When a failed-run alert of this job is still parked (Telegram was down), a separate recovery line
- * would arrive before it, since the cron drains parked alerts later and in rotating order. The note is
- * then added to the parked alert itself, so the owner reads failure and recovery together.
+ * When the streak's failed alert went to the parked queue, the note is parked too (a newer key), and the
+ * cron sends a parked recovery only after every older parked alert of the same job is gone, so the
+ * owner never reads the recovery before the failure. No KV list or rewrite here: both can be stale.
  */
-async function noteRecovery(env: Env, job: string, now: Date): Promise<void> {
-  const note = `🟢 ${job} กลับมาปกติ`;
-  let parked: { name: string }[] = [];
-  try {
-    parked = (await env.MONITOR_KV.list({ prefix: `${HB_ALERT_PREFIX}${job}:` })).keys;
-  } catch (error) {
-    console.error('KV list failed', error instanceof Error ? error.name : 'unknown error');
-  }
-  if (!parked.length) {
-    await sendTelegram(env, bounded(note));
-    return;
-  }
-  const at = bangkokTime(now.toISOString());
-  for (const { name } of parked) {
-    try {
-      const text = await env.MONITOR_KV.get(name);
-      if (text !== null && !text.includes(note)) await env.MONITOR_KV.put(name, bounded(`${text}\n${note} (${at})`));
-    } catch (error) {
-      console.error('KV parked note failed', error instanceof Error ? error.name : 'unknown error');
-    }
-  }
+async function noteRecovery(env: Env, job: string, failureParked: boolean): Promise<void> {
+  const note = bounded(`🟢 ${job} กลับมาปกติ`);
+  if (failureParked) await putRetry(env, hbAlertKey(job), note);
+  else await sendTelegram(env, note);
 }
 
 /** `16/11 09:30` in Asia/Bangkok, the owner's clock. */
@@ -391,11 +379,27 @@ async function runShard(env: Env, shard: number, opts: { readOnly: boolean; sche
     if (cursor) console.warn('parked alerts exceed the per-run scan', PARKED_SCAN * PARKED_PAGES);
     const offset = keys.length ? Math.floor(now.getTime() / 300_000) % keys.length : 0;
     const turn = [...keys.slice(offset), ...keys.slice(0, offset)].slice(0, MAX_PARKED_PER_RUN);
+    // Keys sort by job then time: sending a turn in name order keeps each job's alerts in order.
+    turn.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    const jobOf = (name: string) => name.slice(HB_ALERT_PREFIX.length).split(':')[0];
+    const waiting = new Set<string>();  // jobs with an older parked alert not delivered in this run
+    for (const { name } of keys) {
+      // an older alert of the same job outside this turn holds back the job's recovery note
+      if (!turn.some((t) => t.name === name) && keys.some((k) => jobOf(k.name) === jobOf(name) && k.name > name)) {
+        waiting.add(jobOf(name));
+      }
+    }
     for (const { name } of turn) {
       const text = await env.MONITOR_KV.get(name);
       if (text === null) continue;
+      if (text.startsWith('🟢') && waiting.has(jobOf(name))) continue;  // its failure goes first
+      // One refused alert holds back the rest of its job's alerts in this run (order), never other jobs.
+      if (waiting.has(jobOf(name))) continue;
       // One refused alert must not hold back the others; it stays parked for the next run.
-      if (!(await sendTelegram(env, bounded(text)))) continue;
+      if (!(await sendTelegram(env, bounded(text)))) {
+        waiting.add(jobOf(name));
+        continue;
+      }
       await env.MONITOR_KV.delete(name);
     }
   }

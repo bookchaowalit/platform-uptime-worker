@@ -293,12 +293,16 @@ describe('/heartbeat/<job>', () => {
     expect(telegram).toEqual(['[monitor] 🔴 db-backup รันไม่ผ่าน']);
   });
 
-  it('adds the recovery to a still-parked failed alert instead of sending it ahead of it', async () => {
-    await kv.put('hb:db-backup', JSON.stringify({ at: new Date().toISOString(), ok: false, detail: { ok: false } }));
-    await kv.put('hbalert:db-backup:1:a', '🔴 db-backup รันไม่ผ่าน');
+  it('parks the recovery behind a parked failed alert and sends it second', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-16T03:00:00Z'));
+    telegramUp = false;
+    await call(beat('db-backup', { ok: false, failed: ['x'] }));
+    vi.setSystemTime(new Date('2026-11-16T03:01:00Z'));
     await call(beat('db-backup', { ok: true }));
+    const parked = [...kv.store.keys()].filter((k) => k.startsWith('hbalert:db-backup:')).sort();
+    expect(parked.map((k) => kv.store.get(k))).toEqual(['🔴 db-backup รันไม่ผ่าน: x', '🟢 db-backup กลับมาปกติ']);
     expect(telegram).toEqual([]);
-    expect(kv.store.get('hbalert:db-backup:1:a')).toMatch(/^🔴 db-backup รันไม่ผ่าน\n🟢 db-backup กลับมาปกติ \(\d\d\/\d\d \d\d:\d\d\)$/);
   });
 
   it('counts a body that is not JSON as a failed run', async () => {
@@ -445,6 +449,19 @@ describe('scheduled', () => {
     await runCron('*/5 * * * *');
     expect(telegram).toContain('[monitor] 🔴 job-b รันไม่ผ่าน');
     expect(kv.store.has('hbalert:b:1:b')).toBe(false);
+  });
+
+  it('sends a parked recovery only after the same job\'s older parked failure', async () => {
+    vi.setSystemTime(new Date('2026-10-23T10:07:00Z'));
+    for (const h of HEARTBEATS) await kv.put(`hb:${h.job}`, JSON.stringify({ at: '2026-10-23T10:00:00Z', ok: true }));
+    await kv.put('hbalert:job-b:2:b', '🟢 job-b กลับมาปกติ');
+    await kv.put('hbalert:job-b:1:a', '🔴 REFUSE job-b รันไม่ผ่าน');
+    await runCron('*/5 * * * *');
+    expect(telegram.filter((t) => t.includes('job-b'))).toEqual([]);  // failure refused: recovery waits
+    expect(kv.store.has('hbalert:job-b:2:b')).toBe(true);
+    await kv.put('hbalert:job-b:1:a', '🔴 job-b รันไม่ผ่าน');
+    await runCron('*/5 * * * *');
+    expect(telegram.filter((t) => t.includes('job-b'))).toEqual(['[monitor] 🔴 job-b รันไม่ผ่าน', '[monitor] 🟢 job-b กลับมาปกติ']);
   });
 
   it('more refused parked alerts than one run tries cannot starve the ones after them', async () => {  // review on 0f3e222

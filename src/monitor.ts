@@ -27,6 +27,8 @@ export interface HeartbeatRecord {
   detail?: unknown;
   // failed runs only: false when the failed-run alert was neither sent nor parked, so the next failure alerts again
   alerted?: boolean;
+  // failed runs only: true when that streak's alert went to the parked queue instead of Telegram
+  parked?: boolean;
 }
 
 /** Per-shard state stored as one KV value: target states plus alerts not yet delivered. */
