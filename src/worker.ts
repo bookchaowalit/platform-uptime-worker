@@ -226,16 +226,22 @@ async function handleHeartbeat(request: Request, env: Env, url: URL): Promise<Re
   const now = new Date();
   const record: HeartbeatRecord = { at: now.toISOString(), ok, detail };
   const spec = HEARTBEATS.find((h) => h.job === job)!;
-  const last = ok ? await env.MONITOR_KV.get<HeartbeatRecord>(heartbeatKey(job), 'json') : null;
-  const fresh = last?.ok === true && now.getTime() - Date.parse(last.at) < heartbeatGraceHours(spec) * 3_600_000;
+  const last = await env.MONITOR_KV.get<HeartbeatRecord>(heartbeatKey(job), 'json');
+  const fresh = ok && last?.ok === true && now.getTime() - Date.parse(last.at) < heartbeatGraceHours(spec) * 3_600_000;
   // KV allows one write per second per key and can refuse (429); a refused write must never stop the
   // failed-run alert below, so it is retried once and then reported as not recorded.
   const stored = fresh || (await putRetry(env, heartbeatKey(job), JSON.stringify(record)));
 
-  if (!ok) {
-    const failed = (detail as { failed?: unknown } | null)?.failed;
-    const list = Array.isArray(failed) && failed.length ? `: ${failed.join(', ')}` : '';
-    const text = bounded(`🔴 ${job} run failed${list}`);
+  if (ok && last && last.ok === false) {
+    // One line when a failing job passes again; best effort, a lost recovery note is not worth a retry.
+    await sendTelegram(env, bounded(`🟢 ${job} back to normal`));
+  }
+  // Alert on the first failed run of a streak only: the same failure every run is one problem, not many.
+  // A different list of failed parts is new information and alerts again.
+  const sameFailure = !ok && last?.ok === false && failedList(last.detail) === failedList(detail);
+  if (!ok && !sameFailure) {
+    const list = failedList(detail);
+    const text = bounded(`🔴 ${job} run failed${list ? `: ${list}` : ''}`);
     // If Telegram is down, park the alert under its own key; the shard 0 cron retries it.
     // Neither sent nor parked: answer 503 so the job reports again instead of the alert vanishing.
     if (!(await sendTelegram(env, text)) && !(await putRetry(env, hbAlertKey(job), text))) {
@@ -243,6 +249,11 @@ async function handleHeartbeat(request: Request, env: Env, url: URL): Promise<Re
     }
   }
   return stored ? Response.json({ recorded: true }) : Response.json({ recorded: false }, { status: 503 });
+}
+
+function failedList(detail: unknown): string {
+  const failed = (detail as { failed?: unknown } | null)?.failed;
+  return Array.isArray(failed) ? failed.map(String).join(', ') : '';
 }
 
 async function putRetry(env: Env, key: string, value: string): Promise<boolean> {

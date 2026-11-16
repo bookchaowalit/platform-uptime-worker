@@ -30,7 +30,7 @@ Sources: `src/worker.ts` (`fetch`, `checkTarget`, `sendTelegram`), `src/targets.
 
 | Job | Window (h) | Producer ตาม comment ใน `src/targets.ts` |
 |---|---|---|
-| `db-backup`, `db-backup-ev3`, `-a2n`, `-tma`, `-scannpop`, `-teeparinwat` | 26 | Railway `ops-backups` และ db-backup service ในแต่ละ project |
+| `db-backup`, `db-backup-teeparinwat` (Oak ev3/a2n/tma/scannpop retired 2026-11-16: paused on Railway) | 26 | Railway `ops-backups` และ db-backup service ในแต่ละ project |
 | `token-rotate` | 192 | platform-empire token-rotate cron (Sundays) |
 | `restore-drill` | 840 | platform-db-backup `scripts/restore-drill.sh` (monthly) |
 | `job-capture` | 13 | career-job-scraper scheduled-capture workflow (6 h) |

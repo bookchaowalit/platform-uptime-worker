@@ -118,14 +118,12 @@ const ALL_TARGETS: Target[] = [
   { name: 'ai-media-worker', url: 'https://solo-ai-media-worker.bookchaowalit.workers.dev/healthz', group: 'own' },
   { name: 'bookchaowalit.com', url: 'https://bookchaowalit.com', group: 'own' },
   { name: 'tracking.bookchaowalit.com', url: 'https://tracking.bookchaowalit.com', group: 'own' },
-  // Clients (hosted by us)
-  { name: 'ev3-api', url: railway('api-production-b904', '/healthz'), group: 'client' },
+  // Clients (hosted by us). The Oak API services (ev3, a2n, tma, scannpop) and their db-backup crons
+  // have been paused on Railway since the 2026-11-07 usage-limit stop and Oak work is hands off, so
+  // they are not probed; add them back here if those projects are resumed.
   { name: 'ev3-web', url: 'https://ev3-web.vercel.app', group: 'client' },
-  { name: 'a2n-api', url: railway('a2n-api-production'), group: 'client' },
   { name: 'a2n-web', url: 'https://a2n-web.vercel.app', group: 'client' },
-  { name: 'tma-api', url: railway('tma-api-production-6f7d', '/api/v1/health/ready'), group: 'client' },
   { name: 'tma-moldflow-web', url: 'https://tma-moldflow-web.vercel.app', group: 'client' },
-  { name: 'scannpop-backend', url: railway('scannpop-backend-production'), group: 'client' },
   { name: 'scanpop.co', url: 'https://scanpop.co', group: 'client' },
   { name: 'raidenai-api (teeparinwat)', url: railway('raidenai-api-production'), group: 'client' },
   {
@@ -143,10 +141,6 @@ export const SLEEPING_TARGET_NAMES = SLEEPS;
 // database is backed up by a cron service inside its own project (private network only).
 export const HEARTBEATS: HeartbeatSpec[] = [
   'db-backup',
-  'db-backup-ev3',
-  'db-backup-a2n',
-  'db-backup-tma',
-  'db-backup-scannpop',
   'db-backup-teeparinwat',
 ].map((job) => ({ job, maxAgeHours: 26 } as HeartbeatSpec)).concat([
   // Weekly automation-token rotation (platform-empire token-rotate cron, Sundays). 8 days =

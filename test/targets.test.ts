@@ -114,7 +114,7 @@ describe('HEARTBEATS', () => {
   });
 
   it('watches the nightly database backups with a 26 hour window', () => {
-    for (const job of ['db-backup', 'db-backup-ev3', 'db-backup-a2n', 'db-backup-tma', 'db-backup-scannpop', 'db-backup-teeparinwat']) {
+    for (const job of ['db-backup', 'db-backup-teeparinwat']) {
       expect(HEARTBEATS.find((h) => h.job === job)?.maxAgeHours).toBe(26);
     }
   });
