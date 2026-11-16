@@ -305,6 +305,17 @@ describe('/heartbeat/<job>', () => {
     expect(telegram).toEqual([]);
   });
 
+  it('keeps the parked state for the whole streak when a later failure was sent', async () => {
+    telegramUp = false;
+    await call(beat('db-backup', { ok: false, failed: ['a'] }));
+    telegramUp = true;
+    await call(beat('db-backup', { ok: false, failed: ['a', 'b'] }));
+    await call(beat('db-backup', { ok: true }));
+    expect(telegram).toEqual(['[monitor] 🔴 db-backup รันไม่ผ่าน: a, b']);  // recovery parked behind 'a'
+    const parked = [...kv.store.keys()].filter((k) => k.startsWith('hbalert:db-backup:')).sort();
+    expect(parked.map((k) => kv.store.get(k))).toEqual(['🔴 db-backup รันไม่ผ่าน: a', '🟢 db-backup กลับมาปกติ']);
+  });
+
   it('counts a body that is not JSON as a failed run', async () => {
     await call(request('/heartbeat/restore-drill', { method: 'POST', headers: bearer(HEARTBEAT_TOKEN), body: 'oops' }));
     expect(JSON.parse(kv.store.get('hb:restore-drill')!)).toMatchObject({ ok: false, detail: null });
@@ -462,6 +473,18 @@ describe('scheduled', () => {
     await kv.put('hbalert:job-b:1:a', '🔴 job-b รันไม่ผ่าน');
     await runCron('*/5 * * * *');
     expect(telegram.filter((t) => t.includes('job-b'))).toEqual(['[monitor] 🔴 job-b รันไม่ผ่าน', '[monitor] 🟢 job-b กลับมาปกติ']);
+  });
+
+  it('drains a long parked queue of one job in order', async () => {
+    for (const h of HEARTBEATS) await kv.put(`hb:${h.job}`, JSON.stringify({ at: '2026-10-23T10:00:00Z', ok: true }));
+    for (const n of [1, 2, 3, 4, 5]) await kv.put(`hbalert:job-c:${n}:x`, `🔴 job-c ${n}`);
+    await kv.put('hbalert:job-c:6:x', '🟢 job-c กลับมาปกติ');
+    for (const minute of ['07', '12', '17']) {
+      vi.setSystemTime(new Date(`2026-10-23T10:${minute}:00Z`));
+      await runCron('*/5 * * * *');
+    }
+    expect(telegram.filter((t) => t.includes('job-c'))).toEqual(
+      [1, 2, 3, 4, 5].map((n) => `[monitor] 🔴 job-c ${n}`).concat('[monitor] 🟢 job-c กลับมาปกติ'));
   });
 
   it('more refused parked alerts than one run tries cannot starve the ones after them', async () => {  // review on 0f3e222

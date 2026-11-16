@@ -240,14 +240,16 @@ async function handleHeartbeat(request: Request, env: Env, url: URL): Promise<Re
   const sameFailure =
     !ok && last?.ok === false && last.alerted !== false && failedList(last.detail) === failedList(detail);
   let alerted = true;
-  let parked = sameFailure && last?.parked === true;  // a suppressed run keeps its streak's delivery
+  // Sticky for the whole streak: once a failure of this streak was parked, its recovery must be parked too.
+  let parked = !ok && last?.ok === false && last.parked === true;
   if (!ok && !sameFailure) {
     const list = failedList(detail);
     const text = bounded(`🔴 ${job} รันไม่ผ่าน${list ? `: ${list}` : ''}`);
     // If Telegram is down, park the alert under its own key; the shard 0 cron retries it.
     const sent = await sendTelegram(env, text);
-    parked = !sent && (await putRetry(env, hbAlertKey(job), text));
-    alerted = sent || parked;
+    const queued = !sent && (await putRetry(env, hbAlertKey(job), text));
+    parked = parked || queued;
+    alerted = sent || queued;
   }
   const record: HeartbeatRecord = ok
     ? { at: now.toISOString(), ok, detail }
@@ -377,30 +379,30 @@ async function runShard(env: Env, shard: number, opts: { readOnly: boolean; sche
     }
     // More than the pages hold: say so (the rest wait until the first pages drain) instead of hiding it.
     if (cursor) console.warn('parked alerts exceed the per-run scan', PARKED_SCAN * PARKED_PAGES);
-    const offset = keys.length ? Math.floor(now.getTime() / 300_000) % keys.length : 0;
-    const turn = [...keys.slice(offset), ...keys.slice(0, offset)].slice(0, MAX_PARKED_PER_RUN);
-    // Keys sort by job then time: sending a turn in name order keeps each job's alerts in order.
-    turn.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    // Per job, oldest key first (keys are `<job>:<time>:<id>`), so a job's alerts keep their order; the
+    // jobs take turns from an offset that moves every run, so refused ones cannot starve the others.
     const jobOf = (name: string) => name.slice(HB_ALERT_PREFIX.length).split(':')[0];
-    const waiting = new Set<string>();  // jobs with an older parked alert not delivered in this run
-    for (const { name } of keys) {
-      // an older alert of the same job outside this turn holds back the job's recovery note
-      if (!turn.some((t) => t.name === name) && keys.some((k) => jobOf(k.name) === jobOf(name) && k.name > name)) {
-        waiting.add(jobOf(name));
+    const byJob = new Map<string, string[]>();
+    for (const { name } of keys) byJob.set(jobOf(name), [...(byJob.get(jobOf(name)) ?? []), name]);
+    const jobs = [...byJob.keys()];
+    const offset = jobs.length ? Math.floor(now.getTime() / 300_000) % jobs.length : 0;
+    let budget = MAX_PARKED_PER_RUN;
+    for (const job of [...jobs.slice(offset), ...jobs.slice(0, offset)]) {
+      // A recovery note waits while an older alert of its job is still parked; other alerts never wait,
+      // so one refused alert cannot hold its job's later failures back for good.
+      let held = false;
+      for (const name of byJob.get(job)!.sort()) {
+        if (budget <= 0) break;
+        const text = await env.MONITOR_KV.get(name);
+        if (text === null) continue;
+        if (held && text.startsWith('🟢')) continue;
+        budget--;
+        if (!(await sendTelegram(env, bounded(text)))) {
+          held = true;  // stays parked for the next run
+          continue;
+        }
+        await env.MONITOR_KV.delete(name);
       }
-    }
-    for (const { name } of turn) {
-      const text = await env.MONITOR_KV.get(name);
-      if (text === null) continue;
-      if (text.startsWith('🟢') && waiting.has(jobOf(name))) continue;  // its failure goes first
-      // One refused alert holds back the rest of its job's alerts in this run (order), never other jobs.
-      if (waiting.has(jobOf(name))) continue;
-      // One refused alert must not hold back the others; it stays parked for the next run.
-      if (!(await sendTelegram(env, bounded(text)))) {
-        waiting.add(jobOf(name));
-        continue;
-      }
-      await env.MONITOR_KV.delete(name);
     }
   }
   return { shard, checked: results.length, transitions, pendingAlerts: pendingAlerts.length, timestamp: now.toISOString() };
