@@ -293,6 +293,14 @@ describe('/heartbeat/<job>', () => {
     expect(telegram).toEqual(['[monitor] 🔴 db-backup run failed']);
   });
 
+  it('adds the recovery to a still-parked failed alert instead of sending it ahead of it', async () => {
+    await kv.put('hb:db-backup', JSON.stringify({ at: new Date().toISOString(), ok: false, detail: { ok: false } }));
+    await kv.put('hbalert:db-backup:1:a', '🔴 db-backup run failed');
+    await call(beat('db-backup', { ok: true }));
+    expect(telegram).toEqual([]);
+    expect(kv.store.get('hbalert:db-backup:1:a')).toMatch(/^🔴 db-backup run failed\n🟢 db-backup back to normal \(\d\d:\d\d UTC\)$/);
+  });
+
   it('counts a body that is not JSON as a failed run', async () => {
     await call(request('/heartbeat/restore-drill', { method: 'POST', headers: bearer(HEARTBEAT_TOKEN), body: 'oops' }));
     expect(JSON.parse(kv.store.get('hb:restore-drill')!)).toMatchObject({ ok: false, detail: null });

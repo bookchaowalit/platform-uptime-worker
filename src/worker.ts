@@ -233,10 +233,7 @@ async function handleHeartbeat(request: Request, env: Env, url: URL): Promise<Re
     console.error('KV read failed', error instanceof Error ? error.name : 'unknown error');
   }
 
-  if (ok && last && last.ok === false) {
-    // One line when a failing job passes again; best effort, a lost recovery note is not worth a retry.
-    await sendTelegram(env, bounded(`🟢 ${job} back to normal`));
-  }
+  if (ok && last && last.ok === false) await noteRecovery(env, job, now);
   // Alert on the first failed run of a streak only: the same failure every run is one problem, not many.
   // A different list of failed parts is new information and alerts again, and so does a failure whose
   // earlier alert was never delivered (alerted: false).
@@ -257,6 +254,35 @@ async function handleHeartbeat(request: Request, env: Env, url: URL): Promise<Re
   // Neither sent nor parked: answer 503 so the job reports again instead of the alert vanishing.
   if (!alerted) return Response.json({ recorded: stored, alerted: false }, { status: 503 });
   return stored ? Response.json({ recorded: true }) : Response.json({ recorded: false }, { status: 503 });
+}
+
+/**
+ * One line when a failing job passes again; best effort, a lost recovery note is not worth a retry.
+ * When a failed-run alert of this job is still parked (Telegram was down), a separate recovery line
+ * would arrive before it, since the cron drains parked alerts later and in rotating order. The note is
+ * then added to the parked alert itself, so the owner reads failure and recovery together.
+ */
+async function noteRecovery(env: Env, job: string, now: Date): Promise<void> {
+  const note = `🟢 ${job} back to normal`;
+  let parked: { name: string }[] = [];
+  try {
+    parked = (await env.MONITOR_KV.list({ prefix: `${HB_ALERT_PREFIX}${job}:` })).keys;
+  } catch (error) {
+    console.error('KV list failed', error instanceof Error ? error.name : 'unknown error');
+  }
+  if (!parked.length) {
+    await sendTelegram(env, bounded(note));
+    return;
+  }
+  const at = now.toISOString().slice(11, 16);
+  for (const { name } of parked) {
+    try {
+      const text = await env.MONITOR_KV.get(name);
+      if (text !== null && !text.includes(note)) await env.MONITOR_KV.put(name, bounded(`${text}\n${note} (${at} UTC)`));
+    } catch (error) {
+      console.error('KV parked note failed', error instanceof Error ? error.name : 'unknown error');
+    }
+  }
 }
 
 function failedList(detail: unknown): string {
