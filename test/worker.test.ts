@@ -279,6 +279,20 @@ describe('/heartbeat/<job>', () => {
     ]);
   });
 
+  it('alerts again when the earlier alert of the streak was never delivered', async () => {
+    await kv.put('hb:db-backup', JSON.stringify({ at: new Date().toISOString(), ok: false, detail: { ok: false, failed: ['x'] }, alerted: false }));
+    await call(beat('db-backup', { ok: false, failed: ['x'] }));
+    expect(telegram).toEqual(['[monitor] 🔴 db-backup run failed: x']);
+    expect(JSON.parse(kv.store.get('hb:db-backup')!).alerted).toBe(true);
+  });
+
+  it('still alerts when the previous record cannot be read', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(kv, 'get').mockRejectedValue(new Error('KV GET failed'));
+    await call(beat('db-backup', { ok: false }));
+    expect(telegram).toEqual(['[monitor] 🔴 db-backup run failed']);
+  });
+
   it('counts a body that is not JSON as a failed run', async () => {
     await call(request('/heartbeat/restore-drill', { method: 'POST', headers: bearer(HEARTBEAT_TOKEN), body: 'oops' }));
     expect(JSON.parse(kv.store.get('hb:restore-drill')!)).toMatchObject({ ok: false, detail: null });

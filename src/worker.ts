@@ -224,30 +224,38 @@ async function handleHeartbeat(request: Request, env: Env, url: URL): Promise<Re
   }
   const ok = typeof detail === 'object' && detail !== null && (detail as { ok?: unknown }).ok === true;
   const now = new Date();
-  const record: HeartbeatRecord = { at: now.toISOString(), ok, detail };
   const spec = HEARTBEATS.find((h) => h.job === job)!;
-  const last = await env.MONITOR_KV.get<HeartbeatRecord>(heartbeatKey(job), 'json');
-  const fresh = ok && last?.ok === true && now.getTime() - Date.parse(last.at) < heartbeatGraceHours(spec) * 3_600_000;
-  // KV allows one write per second per key and can refuse (429); a refused write must never stop the
-  // failed-run alert below, so it is retried once and then reported as not recorded.
-  const stored = fresh || (await putRetry(env, heartbeatKey(job), JSON.stringify(record)));
+  // A failed KV read must not stop the failed-run alert: treat it as no previous record.
+  let last: HeartbeatRecord | null = null;
+  try {
+    last = await env.MONITOR_KV.get<HeartbeatRecord>(heartbeatKey(job), 'json');
+  } catch (error) {
+    console.error('KV read failed', error instanceof Error ? error.name : 'unknown error');
+  }
 
   if (ok && last && last.ok === false) {
     // One line when a failing job passes again; best effort, a lost recovery note is not worth a retry.
     await sendTelegram(env, bounded(`🟢 ${job} back to normal`));
   }
   // Alert on the first failed run of a streak only: the same failure every run is one problem, not many.
-  // A different list of failed parts is new information and alerts again.
-  const sameFailure = !ok && last?.ok === false && failedList(last.detail) === failedList(detail);
+  // A different list of failed parts is new information and alerts again, and so does a failure whose
+  // earlier alert was never delivered (alerted: false).
+  const sameFailure =
+    !ok && last?.ok === false && last.alerted !== false && failedList(last.detail) === failedList(detail);
+  let alerted = true;
   if (!ok && !sameFailure) {
     const list = failedList(detail);
     const text = bounded(`🔴 ${job} run failed${list ? `: ${list}` : ''}`);
     // If Telegram is down, park the alert under its own key; the shard 0 cron retries it.
-    // Neither sent nor parked: answer 503 so the job reports again instead of the alert vanishing.
-    if (!(await sendTelegram(env, text)) && !(await putRetry(env, hbAlertKey(job), text))) {
-      return Response.json({ recorded: stored, alerted: false }, { status: 503 });
-    }
+    alerted = (await sendTelegram(env, text)) || (await putRetry(env, hbAlertKey(job), text));
   }
+  const record: HeartbeatRecord = ok ? { at: now.toISOString(), ok, detail } : { at: now.toISOString(), ok, detail, alerted };
+  const fresh = ok && last?.ok === true && now.getTime() - Date.parse(last.at) < heartbeatGraceHours(spec) * 3_600_000;
+  // KV allows one write per second per key and can refuse (429); it is retried once and then reported
+  // as not recorded.
+  const stored = fresh || (await putRetry(env, heartbeatKey(job), JSON.stringify(record)));
+  // Neither sent nor parked: answer 503 so the job reports again instead of the alert vanishing.
+  if (!alerted) return Response.json({ recorded: stored, alerted: false }, { status: 503 });
   return stored ? Response.json({ recorded: true }) : Response.json({ recorded: false }, { status: 503 });
 }
 
