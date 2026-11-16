@@ -263,7 +263,7 @@ describe('/heartbeat/<job>', () => {
   it('alerts straight away on a failed run, listing what failed', async () => {
     await call(beat('db-backup', { ok: false, failed: ['finance', 'tasks'] }));
     expect(JSON.parse(kv.store.get('hb:db-backup')!).ok).toBe(false);
-    expect(telegram).toEqual(['[monitor] 🔴 db-backup run failed: finance, tasks']);
+    expect(telegram).toEqual(['[monitor] 🔴 db-backup รันไม่ผ่าน: finance, tasks']);
   });
 
   it('alerts once per failure streak and once more when the job recovers', async () => {
@@ -273,16 +273,16 @@ describe('/heartbeat/<job>', () => {
     await call(beat('db-backup', { ok: true }));
     await call(beat('db-backup', { ok: true }));
     expect(telegram).toEqual([
-      '[monitor] 🔴 db-backup run failed: convert',
-      '[monitor] 🔴 db-backup run failed: convert, drain',
-      '[monitor] 🟢 db-backup back to normal',
+      '[monitor] 🔴 db-backup รันไม่ผ่าน: convert',
+      '[monitor] 🔴 db-backup รันไม่ผ่าน: convert, drain',
+      '[monitor] 🟢 db-backup กลับมาปกติ',
     ]);
   });
 
   it('alerts again when the earlier alert of the streak was never delivered', async () => {
     await kv.put('hb:db-backup', JSON.stringify({ at: new Date().toISOString(), ok: false, detail: { ok: false, failed: ['x'] }, alerted: false }));
     await call(beat('db-backup', { ok: false, failed: ['x'] }));
-    expect(telegram).toEqual(['[monitor] 🔴 db-backup run failed: x']);
+    expect(telegram).toEqual(['[monitor] 🔴 db-backup รันไม่ผ่าน: x']);
     expect(JSON.parse(kv.store.get('hb:db-backup')!).alerted).toBe(true);
   });
 
@@ -290,21 +290,21 @@ describe('/heartbeat/<job>', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     vi.spyOn(kv, 'get').mockRejectedValue(new Error('KV GET failed'));
     await call(beat('db-backup', { ok: false }));
-    expect(telegram).toEqual(['[monitor] 🔴 db-backup run failed']);
+    expect(telegram).toEqual(['[monitor] 🔴 db-backup รันไม่ผ่าน']);
   });
 
   it('adds the recovery to a still-parked failed alert instead of sending it ahead of it', async () => {
     await kv.put('hb:db-backup', JSON.stringify({ at: new Date().toISOString(), ok: false, detail: { ok: false } }));
-    await kv.put('hbalert:db-backup:1:a', '🔴 db-backup run failed');
+    await kv.put('hbalert:db-backup:1:a', '🔴 db-backup รันไม่ผ่าน');
     await call(beat('db-backup', { ok: true }));
     expect(telegram).toEqual([]);
-    expect(kv.store.get('hbalert:db-backup:1:a')).toMatch(/^🔴 db-backup run failed\n🟢 db-backup back to normal \(\d\d:\d\d UTC\)$/);
+    expect(kv.store.get('hbalert:db-backup:1:a')).toMatch(/^🔴 db-backup รันไม่ผ่าน\n🟢 db-backup กลับมาปกติ \(\d\d\/\d\d \d\d:\d\d\)$/);
   });
 
   it('counts a body that is not JSON as a failed run', async () => {
     await call(request('/heartbeat/restore-drill', { method: 'POST', headers: bearer(HEARTBEAT_TOKEN), body: 'oops' }));
     expect(JSON.parse(kv.store.get('hb:restore-drill')!)).toMatchObject({ ok: false, detail: null });
-    expect(telegram).toEqual(['[monitor] 🔴 restore-drill run failed']);
+    expect(telegram).toEqual(['[monitor] 🔴 restore-drill รันไม่ผ่าน']);
   });
 
   it('skips the KV write for a good run while the last good record is younger than its grace', async () => {
@@ -342,7 +342,7 @@ describe('/heartbeat/<job>', () => {
     vi.spyOn(kv, 'put').mockRejectedValue(new Error('KV PUT failed: 429 Too Many Requests'));
     const response = await call(beat('db-backup', { ok: false }));
     expect(response.status).toBe(503);
-    expect(telegram).toEqual(['[monitor] 🔴 db-backup run failed']);
+    expect(telegram).toEqual(['[monitor] 🔴 db-backup รันไม่ผ่าน']);
   }, 10_000);
 
   it('answers 503 when a failed-run alert could be neither sent nor parked', async () => {  // review on 0f3e222
@@ -372,7 +372,7 @@ describe('/heartbeat/<job>', () => {
     await call(beat('job-capture', { ok: false }));
     const parked = [...kv.store.keys()].filter((k) => k.startsWith('hbalert:job-capture:'));
     expect(parked.length).toBe(1);
-    expect(kv.store.get(parked[0])).toBe('🔴 job-capture run failed');
+    expect(kv.store.get(parked[0])).toBe('🔴 job-capture รันไม่ผ่าน');
   });
 });
 
@@ -414,11 +414,11 @@ describe('scheduled', () => {
     expect(telegram).toEqual([]);
     vi.setSystemTime(new Date('2026-10-23T10:12:00Z'));
     await runCron('2-59/5 * * * *');
-    expect(telegram).toEqual([`[monitor] 🔴 ${target.name} (HTTP 503)`]);
+    expect(telegram).toEqual([`[monitor] 🔴 ${target.name} ล่ม (HTTP 503)`]);
     failing = new Set();
     vi.setSystemTime(new Date('2026-10-23T10:17:00Z'));
     await runCron('2-59/5 * * * *');
-    expect(telegram[1]).toBe(`[monitor] ✅ ${target.name} recovered (down 5m)`);
+    expect(telegram[1]).toBe(`[monitor] 🟢 ${target.name} กลับมาแล้ว · ล่ม 5 นาที`);
   });
 
   it('keeps an undelivered alert queued until Telegram accepts it', async () => {
@@ -429,11 +429,11 @@ describe('scheduled', () => {
       vi.setSystemTime(new Date(`2026-10-23T10:${minute}:00Z`));
       await runCron('2-59/5 * * * *');
     }
-    expect(JSON.parse(kv.store.get('state:1')!).pendingAlerts).toEqual([`🔴 ${target.name} (HTTP 503)`]);
+    expect(JSON.parse(kv.store.get('state:1')!).pendingAlerts).toEqual([`🔴 ${target.name} ล่ม (HTTP 503)`]);
     telegramUp = true;
     vi.setSystemTime(new Date('2026-10-23T10:17:00Z'));
     await runCron('2-59/5 * * * *');
-    expect(telegram).toEqual([`[monitor] 🔴 ${target.name} (HTTP 503)`]);
+    expect(telegram).toEqual([`[monitor] 🔴 ${target.name} ล่ม (HTTP 503)`]);
     expect(JSON.parse(kv.store.get('state:1')!).pendingAlerts).toEqual([]);
   });
 
@@ -441,28 +441,28 @@ describe('scheduled', () => {
     vi.setSystemTime(new Date('2026-10-23T10:07:00Z'));
     for (const h of HEARTBEATS) await kv.put(`hb:${h.job}`, JSON.stringify({ at: '2026-10-23T10:00:00Z', ok: true }));
     await kv.put('hbalert:a:1:a', '🔴 REFUSE me');
-    await kv.put('hbalert:b:1:b', '🔴 job-b run failed');
+    await kv.put('hbalert:b:1:b', '🔴 job-b รันไม่ผ่าน');
     await runCron('*/5 * * * *');
-    expect(telegram).toContain('[monitor] 🔴 job-b run failed');
+    expect(telegram).toContain('[monitor] 🔴 job-b รันไม่ผ่าน');
     expect(kv.store.has('hbalert:b:1:b')).toBe(false);
   });
 
   it('more refused parked alerts than one run tries cannot starve the ones after them', async () => {  // review on 0f3e222
     for (const h of HEARTBEATS) await kv.put(`hb:${h.job}`, JSON.stringify({ at: '2026-10-23T10:00:00Z', ok: true }));
     for (const k of ['a', 'b', 'c']) await kv.put(`hbalert:${k}:1:${k}`, '🔴 REFUSE me');
-    await kv.put('hbalert:d:1:d', '🔴 job-d run failed');
+    await kv.put('hbalert:d:1:d', '🔴 job-d รันไม่ผ่าน');
     for (const minute of ['07', '12', '17', '22']) {  // four runs, a new offset each
       vi.setSystemTime(new Date(`2026-10-23T10:${minute}:00Z`));
       await runCron('*/5 * * * *');
     }
-    expect(telegram).toContain('[monitor] 🔴 job-d run failed');
+    expect(telegram).toContain('[monitor] 🔴 job-d รันไม่ผ่าน');
     expect(kv.store.has('hbalert:d:1:d')).toBe(false);
   });
 
   it('parked alerts past the first list page are reached too', async () => {  // review on 3da5a95
     for (const h of HEARTBEATS) await kv.put(`hb:${h.job}`, JSON.stringify({ at: '2026-10-23T10:00:00Z', ok: true }));
     for (let n = 0; n < 150; n++) await kv.put(`hbalert:a:${String(n).padStart(3, '0')}:a`, '🔴 REFUSE me');
-    await kv.put('hbalert:z:1:z', '🔴 job-z run failed');  // sorts after every refused key
+    await kv.put('hbalert:z:1:z', '🔴 job-z รันไม่ผ่าน');  // sorts after every refused key
     let delivered = false;
     for (let run = 0; run < 160 && !delivered; run++) {
       vi.setSystemTime(new Date(Date.parse('2026-10-23T10:07:00Z') + run * 300_000));
@@ -526,11 +526,11 @@ describe('scheduled', () => {
     for (const h of HEARTBEATS) {
       if (h.job !== 'db-backup') await kv.put(`hb:${h.job}`, JSON.stringify({ at: '2026-10-23T10:00:00Z', ok: true }));
     }
-    await kv.put('hbalert:tma:1:a', '🔴 db-backup-tma run failed');
+    await kv.put('hbalert:tma:1:a', '🔴 db-backup-tma รันไม่ผ่าน');
     await runCron('*/5 * * * *');
     expect(telegram).toEqual([
-      '[monitor] ⏰ db-backup has not reported for over 26h (never)',
-      '[monitor] 🔴 db-backup-tma run failed',
+      '[monitor] 🟡 db-backup ไม่รายงานเกิน 26 ชม. · ยังไม่เคยรายงาน',
+      '[monitor] 🔴 db-backup-tma รันไม่ผ่าน',
     ]);
     expect(kv.store.has('hbstale:db-backup')).toBe(true);
     expect(kv.store.has('hbalert:tma:1:a')).toBe(false);

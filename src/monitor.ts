@@ -327,12 +327,10 @@ export async function mapWithConcurrency<T, R>(items: T[], limit: number, fn: (i
 
 export function formatTransitions(transitions: Transition[], now: Date): string {
   const lines = transitions.map((t) => {
-    if (t.kind === 'recovered') {
-      return `✅ ${t.name} recovered (down ${durationText(t.downSince, now)})`;
-    }
-    const prefix = t.kind === 'down' ? '🔴' : '⏰ still down:';
-    const since = t.kind === 'reminder' ? ` for ${durationText(t.downSince, now)}` : '';
-    return `${prefix} ${t.name}${since}${t.error ? ` (${t.error})` : ''}`;
+    if (t.kind === 'recovered') return `🟢 ${t.name} กลับมาแล้ว · ล่ม ${durationText(t.downSince, now)}`;
+    const error = t.error ? ` (${t.error})` : '';
+    if (t.kind === 'down') return `🔴 ${t.name} ล่ม${error}`;
+    return `🟡 ${t.name} ยังล่ม ${durationText(t.downSince, now)}${error}`;
   });
   return lines.join('\n');
 }
@@ -342,9 +340,10 @@ export function hoursBetween(fromIso: string, now: Date): number {
 }
 
 function durationText(fromIso: string | undefined, now: Date): string {
-  if (!fromIso) return 'unknown';
+  if (!fromIso) return 'ไม่ทราบระยะเวลา';
   const minutes = Math.max(0, Math.round((now.getTime() - new Date(fromIso).getTime()) / 60_000));
-  if (minutes < 60) return `${minutes}m`;
+  if (minutes < 60) return `${minutes} นาที`;
   const hours = Math.floor(minutes / 60);
-  return `${hours}h${minutes % 60 ? ` ${minutes % 60}m` : ''}`;
+  if (hours >= 48) return `${Math.floor(hours / 24)} วัน${hours % 24 ? ` ${hours % 24} ชม.` : ''}`;
+  return `${hours} ชม.${minutes % 60 ? ` ${minutes % 60} นาที` : ''}`;
 }

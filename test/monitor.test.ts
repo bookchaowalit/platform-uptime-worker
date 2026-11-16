@@ -287,6 +287,6 @@ describe('formatTransitions', () => {
       ],
       at(90),
     );
-    expect(text).toBe('🔴 a (HTTP 500)\n⏰ still down: b for 1h 30m\n✅ c recovered (down 1h 30m)');
+    expect(text).toBe('🔴 a ล่ม (HTTP 500)\n🟡 b ยังล่ม 1 ชม. 30 นาที\n🟢 c กลับมาแล้ว · ล่ม 1 ชม. 30 นาที');
   });
 });

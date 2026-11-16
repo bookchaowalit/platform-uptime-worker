@@ -242,7 +242,7 @@ async function handleHeartbeat(request: Request, env: Env, url: URL): Promise<Re
   let alerted = true;
   if (!ok && !sameFailure) {
     const list = failedList(detail);
-    const text = bounded(`🔴 ${job} run failed${list ? `: ${list}` : ''}`);
+    const text = bounded(`🔴 ${job} รันไม่ผ่าน${list ? `: ${list}` : ''}`);
     // If Telegram is down, park the alert under its own key; the shard 0 cron retries it.
     alerted = (await sendTelegram(env, text)) || (await putRetry(env, hbAlertKey(job), text));
   }
@@ -263,7 +263,7 @@ async function handleHeartbeat(request: Request, env: Env, url: URL): Promise<Re
  * then added to the parked alert itself, so the owner reads failure and recovery together.
  */
 async function noteRecovery(env: Env, job: string, now: Date): Promise<void> {
-  const note = `🟢 ${job} back to normal`;
+  const note = `🟢 ${job} กลับมาปกติ`;
   let parked: { name: string }[] = [];
   try {
     parked = (await env.MONITOR_KV.list({ prefix: `${HB_ALERT_PREFIX}${job}:` })).keys;
@@ -274,15 +274,22 @@ async function noteRecovery(env: Env, job: string, now: Date): Promise<void> {
     await sendTelegram(env, bounded(note));
     return;
   }
-  const at = now.toISOString().slice(11, 16);
+  const at = bangkokTime(now.toISOString());
   for (const { name } of parked) {
     try {
       const text = await env.MONITOR_KV.get(name);
-      if (text !== null && !text.includes(note)) await env.MONITOR_KV.put(name, bounded(`${text}\n${note} (${at} UTC)`));
+      if (text !== null && !text.includes(note)) await env.MONITOR_KV.put(name, bounded(`${text}\n${note} (${at})`));
     } catch (error) {
       console.error('KV parked note failed', error instanceof Error ? error.name : 'unknown error');
     }
   }
+}
+
+/** `16/11 09:30` in Asia/Bangkok, the owner's clock. */
+function bangkokTime(iso: string): string {
+  const d = new Date(Date.parse(iso) + 7 * 3_600_000);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${pad(d.getUTCDate())}/${pad(d.getUTCMonth() + 1)} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`;
 }
 
 function failedList(detail: unknown): string {
@@ -342,7 +349,7 @@ async function runShard(env: Env, shard: number, opts: { readOnly: boolean; sche
     }
     for (const spec of staleHeartbeats(HEARTBEATS, records, alerted, now)) {
       const last = records[spec.job]?.at;
-      fresh.push(`⏰ ${spec.job} has not reported for over ${spec.maxAgeHours}h${last ? ` (last: ${last})` : ' (never)'}`);
+      fresh.push(`🟡 ${spec.job} ไม่รายงานเกิน ${spec.maxAgeHours} ชม. · ${last ? `ล่าสุด ${bangkokTime(last)}` : 'ยังไม่เคยรายงาน'}`);
       staleMarks.push(spec.job);
     }
   }
