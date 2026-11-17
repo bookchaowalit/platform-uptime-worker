@@ -557,10 +557,37 @@ describe('scheduled', () => {
     expect(telegram).toContain('[monitor] 🔴 job-e new');
   });
 
+  it('rotates stuck failures of one job so a fourth behind three refused ones is still tried', async () => {
+    // review on be2cda2: all parked over an hour, the first three refused every run.
+    const old = Date.parse('2026-10-23T08:00:00Z');
+    for (const n of [1, 2, 3]) await kv.put(`hbalert:job-g:${old + n}:f:x`, `🔴 REFUSE job-g ${n}`);
+    await kv.put(`hbalert:job-g:${old + 4}:f:x`, '🔴 job-g 4');
+    for (const h of HEARTBEATS) await kv.put(`hb:${h.job}`, JSON.stringify({ at: '2026-10-23T10:00:00Z', ok: true }));
+    for (const minute of ['07', '12', '17', '22', '27']) {
+      vi.setSystemTime(new Date(`2026-10-23T10:${minute}:00Z`));
+      await runCron('*/5 * * * *');
+    }
+    expect(telegram).toContain('[monitor] 🔴 job-g 4');
+  });
+
+  it('reads parked values only for the alerts it tries', async () => {
+    vi.setSystemTime(new Date('2026-10-23T10:07:00Z'));
+    for (const h of HEARTBEATS) await kv.put(`hb:${h.job}`, JSON.stringify({ at: '2026-10-23T10:00:00Z', ok: true }));
+    let before = kv.gets;
+    await runCron('*/5 * * * *');
+    const baseline = kv.gets - before;  // the run's own reads with nothing parked
+    const at = Date.parse('2026-10-23T10:06:00Z');
+    for (let n = 0; n < 40; n++) await kv.put(`hbalert:job-h:${at + n}:f:x`, '🔴 REFUSE job-h');
+    before = kv.gets;
+    await runCron('*/5 * * * *');
+    expect(kv.gets - before - baseline).toBeLessThanOrEqual(3);  // only the three it tried, not all 40
+  });
+
   it('drains a long parked queue of one job in order', async () => {
     for (const h of HEARTBEATS) await kv.put(`hb:${h.job}`, JSON.stringify({ at: '2026-10-23T10:00:00Z', ok: true }));
-    for (const n of [1, 2, 3, 4, 5]) await kv.put(`hbalert:job-c:${n}:x`, `🔴 job-c ${n}`);
-    await kv.put('hbalert:job-c:6:x', '🟢 job-c กลับมาปกติ');
+    const at = Date.parse('2026-10-23T10:06:00Z');  // parked just now: not yet stuck, so strictly oldest first
+    for (const n of [1, 2, 3, 4, 5]) await kv.put(`hbalert:job-c:${at + n}:f:x`, `🔴 job-c ${n}`);
+    await kv.put(`hbalert:job-c:${at + 6}:r:x`, '🟢 job-c กลับมาปกติ');
     for (const minute of ['07', '12', '17']) {
       vi.setSystemTime(new Date(`2026-10-23T10:${minute}:00Z`));
       await runCron('*/5 * * * *');
