@@ -308,6 +308,39 @@ describe('/heartbeat/<job>', () => {
     expect(telegram).toEqual(['[monitor] 🔴 credits-worker รันไม่ผ่าน: relay', '[monitor] 🟢 credits-worker กลับมาปกติ']);
   });
 
+  it('a new streak parks behind an earlier streak still parked, so the last message is the latest state', async () => {
+    // review on 88ee076: old failure + old recovery parked, then the job fails again with Telegram back.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-16T03:00:00Z'));
+    telegramUp = false;
+    await call(beat('db-backup', { ok: false, failed: ['x'] }));
+    vi.setSystemTime(new Date('2026-11-16T03:01:00Z'));
+    await call(beat('db-backup', { ok: true }));
+    telegramUp = true;
+    vi.setSystemTime(new Date('2026-11-16T03:02:00Z'));
+    await call(beat('db-backup', { ok: false, failed: ['x'] }));
+    expect(telegram).toEqual([]);
+    const parked = [...kv.store.keys()].filter((k) => k.startsWith('hbalert:db-backup:')).sort();
+    expect(parked.map((k) => kv.store.get(k))).toEqual([
+      '🔴 db-backup รันไม่ผ่าน: x',
+      '🟢 db-backup กลับมาปกติ',
+      '🔴 db-backup รันไม่ผ่าน: x',
+    ]);
+  });
+
+  it('sends the recovery only after the ok record is stored', async () => {
+    await call(beat('db-backup', { ok: false, failed: ['x'] }));
+    const put = kv.put.bind(kv);
+    vi.spyOn(kv, 'put').mockImplementation(async (key: string, value: string) => {
+      if (key === 'hb:db-backup') throw new Error('KV PUT failed');
+      return put(key, value);
+    });
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await call(beat('db-backup', { ok: true }));
+    expect(res.status).toBe(503);
+    expect(telegram).toEqual(['[monitor] 🔴 db-backup รันไม่ผ่าน: x']);  // no 'recovered' over a failed record
+  });
+
   it('alerts again when the earlier alert of the streak was never delivered', async () => {
     await kv.put('hb:db-backup', JSON.stringify({ at: new Date().toISOString(), ok: false, detail: { ok: false, failed: ['x'] }, alerted: false }));
     await call(beat('db-backup', { ok: false, failed: ['x'] }));
@@ -345,9 +378,14 @@ describe('/heartbeat/<job>', () => {
     await call(beat('db-backup', { ok: false, failed: ['a', 'b'] }));
     vi.setSystemTime(new Date('2026-11-16T03:02:00Z'));
     await call(beat('db-backup', { ok: true }));
-    expect(telegram).toEqual(['[monitor] 🔴 db-backup รันไม่ผ่าน: a, b']);  // recovery parked behind 'a'
+    // 'a' is still parked, so the later failure and the recovery park behind it: the job's order holds.
+    expect(telegram).toEqual([]);
     const parked = [...kv.store.keys()].filter((k) => k.startsWith('hbalert:db-backup:')).sort();
-    expect(parked.map((k) => kv.store.get(k))).toEqual(['🔴 db-backup รันไม่ผ่าน: a', '🟢 db-backup กลับมาปกติ']);
+    expect(parked.map((k) => kv.store.get(k))).toEqual([
+      '🔴 db-backup รันไม่ผ่าน: a',
+      '🔴 db-backup รันไม่ผ่าน: a, b',
+      '🟢 db-backup กลับมาปกติ',
+    ]);
   });
 
   it('counts a body that is not JSON as a failed run', async () => {
@@ -507,6 +545,16 @@ describe('scheduled', () => {
     await kv.put('hbalert:job-b:1:a', '🔴 job-b รันไม่ผ่าน');
     await runCron('*/5 * * * *');
     expect(telegram.filter((t) => t.includes('job-b'))).toEqual(['[monitor] 🔴 job-b รันไม่ผ่าน', '[monitor] 🟢 job-b กลับมาปกติ']);
+  });
+
+  it('refused alerts of one job parked over an hour cannot starve its newer failures', async () => {  // review on 88ee076
+    vi.setSystemTime(new Date('2026-10-23T10:07:00Z'));
+    for (const h of HEARTBEATS) await kv.put(`hb:${h.job}`, JSON.stringify({ at: '2026-10-23T10:00:00Z', ok: true }));
+    const old = Date.parse('2026-10-23T08:00:00Z');
+    for (const n of [1, 2, 3]) await kv.put(`hbalert:job-e:${old + n}:x`, `🔴 REFUSE job-e ${n}`);
+    await kv.put(`hbalert:job-e:${Date.parse('2026-10-23T10:05:00Z')}:x`, '🔴 job-e new');
+    await runCron('*/5 * * * *');
+    expect(telegram).toContain('[monitor] 🔴 job-e new');
   });
 
   it('drains a long parked queue of one job in order', async () => {

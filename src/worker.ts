@@ -246,8 +246,12 @@ async function handleHeartbeat(request: Request, env: Env, url: URL): Promise<Re
     console.error('KV read failed', error instanceof Error ? error.name : 'unknown error');
   }
 
-  // A streak that never alerted (held below failuresBeforeAlert) recovers silently.
-  if (ok && last && last.ok === false && last.held !== true) await noteRecovery(env, job, last.parked === true);
+  // A streak that never alerted (held below failuresBeforeAlert) recovers silently. The note goes out only
+  // after the ok record is stored, so a lost write cannot leave a 'recovered' message over a failed record.
+  const recover = ok && !!last && last.ok === false && last.held !== true;
+  // While any alert of this job is still parked, new ones park behind it so the job's order holds across
+  // streaks (a listing only when something is about to be said: lists are the scarcest KV operation).
+  const backlog = (!ok || recover) && (await hasParked(env, job));
   const streak = ok ? 0 : last?.ok === false ? (last.streak ?? 1) + 1 : 1;
   const held = !ok && streak < (spec.failuresBeforeAlert ?? 1);
   // Alert on the first failed run of a streak only: the same failure every run is one problem, not many.
@@ -257,12 +261,13 @@ async function handleHeartbeat(request: Request, env: Env, url: URL): Promise<Re
     !ok && last?.ok === false && last.alerted !== false && failedList(last.detail) === failedList(detail);
   let alerted = true;
   // Sticky for the whole streak: once a failure of this streak was parked, its recovery must be parked too.
-  let parked = !ok && last?.ok === false && last.parked === true;
+  let parked = (!ok && last?.ok === false && last.parked === true) || (!ok && backlog);
   if (!ok && !sameFailure && !held) {
     const list = failedList(detail);
     const text = bounded(`🔴 ${job} รันไม่ผ่าน${list ? `: ${list}` : ''}`);
-    // If Telegram is down, park the alert under its own key; the shard 0 cron retries it.
-    const sent = await sendTelegram(env, text);
+    // If Telegram is down, park the alert under its own key; the shard 0 cron retries it. Behind a backlog it
+    // parks straight away.
+    const sent = !backlog && (await sendTelegram(env, text));
     const queued = !sent && (await putRetry(env, hbAlertKey(job), text));
     parked = parked || queued;
     alerted = sent || queued;
@@ -283,6 +288,7 @@ async function handleHeartbeat(request: Request, env: Env, url: URL): Promise<Re
   // KV allows one write per second per key and can refuse (429); it is retried once and then reported
   // as not recorded.
   const stored = fresh || (await putRetry(env, heartbeatKey(job), JSON.stringify(record)));
+  if (stored && recover) await noteRecovery(env, job, last!.parked === true || backlog);
   // Neither sent nor parked: answer 503 so the job reports again instead of the alert vanishing.
   if (!alerted) return Response.json({ recorded: stored, alerted: false }, { status: 503 });
   return stored ? Response.json({ recorded: true }) : Response.json({ recorded: false }, { status: 503 });
@@ -294,10 +300,20 @@ async function handleHeartbeat(request: Request, env: Env, url: URL): Promise<Re
  * cron sends a parked recovery only after every older parked alert of the same job is gone, so the
  * owner never reads the recovery before the failure. No KV list or rewrite here: both can be stale.
  */
-async function noteRecovery(env: Env, job: string, failureParked: boolean): Promise<void> {
+async function noteRecovery(env: Env, job: string, behindParked: boolean): Promise<void> {
   const note = bounded(`🟢 ${job} กลับมาปกติ`);
-  if (failureParked) await putRetry(env, hbAlertKey(job), note);
-  else await sendTelegram(env, note);
+  // Behind a parked alert it parks too; a refused send parks rather than vanishing.
+  if (behindParked || !(await sendTelegram(env, note))) await putRetry(env, hbAlertKey(job), note);
+}
+
+/** Whether any alert of this job is parked (a failed listing counts as yes: parking keeps the order). */
+async function hasParked(env: Env, job: string): Promise<boolean> {
+  try {
+    const listed = await env.MONITOR_KV.list({ prefix: `${HB_ALERT_PREFIX}${job}:`, limit: 1 });
+    return listed.keys.length > 0;
+  } catch {
+    return true;
+  }
 }
 
 /** `16/11 09:30` in Asia/Bangkok, the owner's clock. */
@@ -420,20 +436,38 @@ async function runShard(env: Env, shard: number, opts: { readOnly: boolean; sche
     const offset = jobs.length ? Math.floor(now.getTime() / 300_000) % jobs.length : 0;
     let budget = MAX_PARKED_PER_RUN;
     for (const job of [...jobs.slice(offset), ...jobs.slice(0, offset)]) {
-      // A recovery note waits while an older alert of its job is still parked; other alerts never wait,
-      // so one refused alert cannot hold its job's later failures back for good.
-      let held = false;
-      for (const name of byJob.get(job)!.sort()) {
-        if (budget <= 0) break;
+      if (budget <= 0) break;
+      const names = byJob.get(job)!.sort();
+      const texts = new Map<string, string>();
+      for (const name of names) {
         const text = await env.MONITOR_KV.get(name);
-        if (text === null) continue;
-        if (held && text.startsWith('🟢')) continue;
-        budget--;
-        if (!(await sendTelegram(env, bounded(text)))) {
-          held = true;  // stays parked for the next run
-          continue;
+        if (text !== null) texts.set(name, text);
+      }
+      // Order rules: a recovery waits for every older alert of its job, and a failure waits for every older
+      // recovery, so the last message a job leaves is always its latest state. Oldest first; an alert parked
+      // over an hour (Telegram keeps refusing it) goes to the back, so it cannot use up the budget ahead of
+      // the failures after it. Passes repeat while something was sent (a recovery may become sendable).
+      const parkedAt = (n: string) => Number(n.slice(HB_ALERT_PREFIX.length).split(':')[1]) || 0;
+      const stuck = (n: string) => now.getTime() - parkedAt(n) > 3_600_000;
+      const order = [...names.filter((n) => !stuck(n)), ...names.filter(stuck)];
+      const tried = new Set<string>();
+      let progress = true;
+      while (progress && budget > 0) {
+        progress = false;
+        for (const name of order) {
+          if (budget <= 0) break;
+          if (!texts.has(name) || tried.has(name)) continue;
+          const text = texts.get(name)!;
+          const older = names.filter((n) => n < name && texts.has(n));
+          const recovery = text.startsWith('🟢');
+          if (recovery ? older.length > 0 : older.some((n) => texts.get(n)!.startsWith('🟢'))) continue;
+          budget--;
+          tried.add(name);
+          if (!(await sendTelegram(env, bounded(text)))) continue; // stays parked for the next run
+          await env.MONITOR_KV.delete(name);
+          texts.delete(name);
+          progress = true;
         }
-        await env.MONITOR_KV.delete(name);
       }
     }
   }
