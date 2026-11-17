@@ -292,6 +292,22 @@ describe('/heartbeat/<job>', () => {
     ]);
   });
 
+  it('a job with failuresBeforeAlert 2 stays quiet for one failed run and its recovery', async () => {
+    await call(beat('credits-worker', { ok: false, failed: ['relay'] }));
+    expect(JSON.parse(kv.store.get('hb:credits-worker')!)).toMatchObject({ ok: false, streak: 1, held: true, alerted: false });
+    await call(beat('credits-worker', { ok: true }));
+    expect(telegram).toEqual([]);
+  });
+
+  it('a job with failuresBeforeAlert 2 alerts on the second failure in a row, then recovers loudly', async () => {
+    const first = await call(beat('credits-worker', { ok: false, failed: ['relay'] }));
+    expect(first.status).toBe(200); // held, not undelivered: no 503 retry
+    await call(beat('credits-worker', { ok: false, failed: ['relay'] }));
+    await call(beat('credits-worker', { ok: false, failed: ['relay'] }));
+    await call(beat('credits-worker', { ok: true }));
+    expect(telegram).toEqual(['[monitor] 🔴 credits-worker รันไม่ผ่าน: relay', '[monitor] 🟢 credits-worker กลับมาปกติ']);
+  });
+
   it('alerts again when the earlier alert of the streak was never delivered', async () => {
     await kv.put('hb:db-backup', JSON.stringify({ at: new Date().toISOString(), ok: false, detail: { ok: false, failed: ['x'] }, alerted: false }));
     await call(beat('db-backup', { ok: false, failed: ['x'] }));

@@ -246,7 +246,10 @@ async function handleHeartbeat(request: Request, env: Env, url: URL): Promise<Re
     console.error('KV read failed', error instanceof Error ? error.name : 'unknown error');
   }
 
-  if (ok && last && last.ok === false) await noteRecovery(env, job, last.parked === true);
+  // A streak that never alerted (held below failuresBeforeAlert) recovers silently.
+  if (ok && last && last.ok === false && last.held !== true) await noteRecovery(env, job, last.parked === true);
+  const streak = ok ? 0 : last?.ok === false ? (last.streak ?? 1) + 1 : 1;
+  const held = !ok && streak < (spec.failuresBeforeAlert ?? 1);
   // Alert on the first failed run of a streak only: the same failure every run is one problem, not many.
   // A different list of failed parts is new information and alerts again, and so does a failure whose
   // earlier alert was never delivered (alerted: false).
@@ -255,7 +258,7 @@ async function handleHeartbeat(request: Request, env: Env, url: URL): Promise<Re
   let alerted = true;
   // Sticky for the whole streak: once a failure of this streak was parked, its recovery must be parked too.
   let parked = !ok && last?.ok === false && last.parked === true;
-  if (!ok && !sameFailure) {
+  if (!ok && !sameFailure && !held) {
     const list = failedList(detail);
     const text = bounded(`🔴 ${job} รันไม่ผ่าน${list ? `: ${list}` : ''}`);
     // If Telegram is down, park the alert under its own key; the shard 0 cron retries it.
@@ -266,7 +269,16 @@ async function handleHeartbeat(request: Request, env: Env, url: URL): Promise<Re
   }
   const record: HeartbeatRecord = ok
     ? { at: now.toISOString(), ok, detail }
-    : { at: now.toISOString(), ok, detail, alerted, ...(parked ? { parked } : {}) };
+    : {
+        at: now.toISOString(),
+        ok,
+        detail,
+        // A held failure sent nothing, so the next failure of the streak must alert.
+        alerted: held ? false : alerted,
+        streak,
+        ...(held ? { held } : {}),
+        ...(parked ? { parked } : {}),
+      };
   const fresh = ok && last?.ok === true && now.getTime() - Date.parse(last.at) < heartbeatGraceHours(spec) * 3_600_000;
   // KV allows one write per second per key and can refuse (429); it is retried once and then reported
   // as not recorded.

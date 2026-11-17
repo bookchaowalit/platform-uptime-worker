@@ -14,6 +14,9 @@ export interface Target {
 export interface HeartbeatSpec {
   job: string;
   maxAgeHours: number;
+  // Failed runs in a row before the first alert (default 1). For frequent jobs whose single failure
+  // is usually a passing blip; the recovery note is then sent only after an alert went out.
+  failuresBeforeAlert?: number;
 }
 
 const railway = (host: string, path = '/health') => `https://${host}.up.railway.app${path}`;
@@ -161,7 +164,7 @@ export const HEARTBEATS: HeartbeatSpec[] = [
   { job: 'checkin-daily', maxAgeHours: 25 },
   // Backlog sync (platform-empire Railway cron `backlog-sync`, hourly at :05, ADR-0006).
   // 3 h = two missed runs plus an hour.
-  { job: 'backlog-sync', maxAgeHours: 3 },
+  { job: 'backlog-sync', maxAgeHours: 3, failuresBeforeAlert: 2 },
   // Daily Thai digest of the Chief Findings sheet (data-lake-pipelines Railway cron
   // `sheet-summaries`, 12:00 UTC). 26 h = one daily run plus two hours; ok:false alerts at once.
   { job: 'sheet-summaries', maxAgeHours: 26 },
@@ -216,7 +219,7 @@ export const HEARTBEATS: HeartbeatSpec[] = [
   { job: 'event-notifier', maxAgeHours: 3 },
   // Credits settlement worker (platform-credits `tick`, Railway cron every 15 min, SPEC-003): 1 h = three
   // missed runs plus a quarter; ok:false (a step failed: payment, relay, row errors) alerts at once.
-  { job: 'credits-worker', maxAgeHours: 1 },
+  { job: 'credits-worker', maxAgeHours: 1, failuresBeforeAlert: 2 },
   // Communication delivery worker (platform-communication Railway cron `communication-worker`, every 30 min,
   // `worker --until-empty`): 2 h = three missed runs plus half an hour; ok:false (startup or drain failed) alerts at once.
   { job: 'communication-worker', maxAgeHours: 2 },
