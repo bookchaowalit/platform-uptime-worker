@@ -152,6 +152,12 @@ describe('/status', () => {
     expect(body.heartbeats).toBeUndefined();
   });
 
+  it('shows the late and failed job names that shard 0 summarised, nothing else about jobs', async () => {
+    kv.store.set('hb-summary', JSON.stringify({ total: 3, late: ['posture-monitor'], failed: [] }));
+    const body = (await (await call(request('/status'))).json()) as { jobs: unknown };
+    expect(body.jobs).toEqual({ total: 3, late: ['posture-monitor'], failed: [] });
+  });
+
   it('serves public requests from the edge cache so traffic cannot drain KV reads', async () => {
     const first = await call(request('/status'));
     expect(first.headers.get('cache-control')).toBe('public, max-age=60');
@@ -306,10 +312,15 @@ describe('/heartbeat/<job>', () => {
   });
 
   it('keeps the parked state for the whole streak when a later failure was sent', async () => {
+    // Distinct times: parked keys sort by timestamp, and two in the same millisecond would sort by uuid.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-16T03:00:00Z'));
     telegramUp = false;
     await call(beat('db-backup', { ok: false, failed: ['a'] }));
     telegramUp = true;
+    vi.setSystemTime(new Date('2026-11-16T03:01:00Z'));
     await call(beat('db-backup', { ok: false, failed: ['a', 'b'] }));
+    vi.setSystemTime(new Date('2026-11-16T03:02:00Z'));
     await call(beat('db-backup', { ok: true }));
     expect(telegram).toEqual(['[monitor] 🔴 db-backup รันไม่ผ่าน: a, b']);  // recovery parked behind 'a'
     const parked = [...kv.store.keys()].filter((k) => k.startsWith('hbalert:db-backup:')).sort();
