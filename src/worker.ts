@@ -62,7 +62,10 @@ const JOBS_SUMMARY_KEY = 'hb-summary';
 // handler only creates keys, the shard 0 cron only deletes keys it has already copied into its
 // durable queue, so no event is ever overwritten or lost.
 const HB_ALERT_PREFIX = 'hbalert:';
-const hbAlertKey = (job: string) => `${HB_ALERT_PREFIX}${job}:${Date.now()}:${crypto.randomUUID()}`;
+// `hbalert:<job>:<ms>:<f|r>:<uuid>`: the kind (failure / recovery) is in the name so the drain can keep a
+// job's order without reading values. Keys from before carry no kind (`<job>:<ms>:<uuid>`).
+const hbAlertKey = (job: string, kind: 'f' | 'r') =>
+  `${HB_ALERT_PREFIX}${job}:${Date.now()}:${kind}:${crypto.randomUUID()}`;
 
 /**
  * Parked heartbeat alerts sent per run. A parked key is deleted only after Telegram accepts it, so
@@ -268,7 +271,7 @@ async function handleHeartbeat(request: Request, env: Env, url: URL): Promise<Re
     // If Telegram is down, park the alert under its own key; the shard 0 cron retries it. Behind a backlog it
     // parks straight away.
     const sent = !backlog && (await sendTelegram(env, text));
-    const queued = !sent && (await putRetry(env, hbAlertKey(job), text));
+    const queued = !sent && (await putRetry(env, hbAlertKey(job, 'f'), text));
     parked = parked || queued;
     alerted = sent || queued;
   }
@@ -303,7 +306,7 @@ async function handleHeartbeat(request: Request, env: Env, url: URL): Promise<Re
 async function noteRecovery(env: Env, job: string, behindParked: boolean): Promise<void> {
   const note = bounded(`🟢 ${job} กลับมาปกติ`);
   // Behind a parked alert it parks too; a refused send parks rather than vanishing.
-  if (behindParked || !(await sendTelegram(env, note))) await putRetry(env, hbAlertKey(job), note);
+  if (behindParked || !(await sendTelegram(env, note))) await putRetry(env, hbAlertKey(job, 'r'), note);
 }
 
 /** Whether any alert of this job is parked (a failed listing counts as yes: parking keeps the order). */
@@ -438,34 +441,46 @@ async function runShard(env: Env, shard: number, opts: { readOnly: boolean; sche
     for (const job of [...jobs.slice(offset), ...jobs.slice(0, offset)]) {
       if (budget <= 0) break;
       const names = byJob.get(job)!.sort();
-      const texts = new Map<string, string>();
-      for (const name of names) {
-        const text = await env.MONITOR_KV.get(name);
-        if (text !== null) texts.set(name, text);
-      }
+      // Values are read only for keys about to be sent (KV reads are a daily quota); the kind comes from
+      // the key name, or for an older key without one, from its value on first need.
+      const texts = new Map<string, string | null>();
+      const textOf = async (n: string) => {
+        if (!texts.has(n)) texts.set(n, await env.MONITOR_KV.get(n));
+        return texts.get(n) ?? null;
+      };
+      const gone = new Set<string>();
+      const isRecovery = async (n: string) => {
+        const kind = n.slice(HB_ALERT_PREFIX.length).split(':')[2];
+        if (kind === 'r' || kind === 'f') return kind === 'r';
+        return ((await textOf(n)) ?? '').startsWith('🟢');
+      };
       // Order rules: a recovery waits for every older alert of its job, and a failure waits for every older
-      // recovery, so the last message a job leaves is always its latest state. Oldest first; an alert parked
-      // over an hour (Telegram keeps refusing it) goes to the back, so it cannot use up the budget ahead of
-      // the failures after it. Passes repeat while something was sent (a recovery may become sendable).
+      // recovery, so the last message a job leaves is always its latest state. Oldest first; alerts parked
+      // over an hour (Telegram keeps refusing them) go to the back, rotated every run, so refused ones cannot
+      // use up the budget ahead of the others. Passes repeat while something was sent.
       const parkedAt = (n: string) => Number(n.slice(HB_ALERT_PREFIX.length).split(':')[1]) || 0;
-      const stuck = (n: string) => now.getTime() - parkedAt(n) > 3_600_000;
-      const order = [...names.filter((n) => !stuck(n)), ...names.filter(stuck)];
+      const stuck = names.filter((n) => now.getTime() - parkedAt(n) > 3_600_000);
+      const turn = stuck.length ? Math.floor(now.getTime() / 300_000) % stuck.length : 0;
+      const order = [...names.filter((n) => !stuck.includes(n)), ...stuck.slice(turn), ...stuck.slice(0, turn)];
       const tried = new Set<string>();
       let progress = true;
       while (progress && budget > 0) {
         progress = false;
         for (const name of order) {
           if (budget <= 0) break;
-          if (!texts.has(name) || tried.has(name)) continue;
-          const text = texts.get(name)!;
-          const older = names.filter((n) => n < name && texts.has(n));
-          const recovery = text.startsWith('🟢');
-          if (recovery ? older.length > 0 : older.some((n) => texts.get(n)!.startsWith('🟢'))) continue;
+          if (gone.has(name) || tried.has(name)) continue;
+          const older = names.filter((n) => n < name && !gone.has(n));
+          let blocked = false;
+          if (await isRecovery(name)) blocked = older.length > 0;
+          else for (const n of older) if (await isRecovery(n)) { blocked = true; break; }
+          if (blocked) continue;
+          const text = await textOf(name);
+          if (text === null) { gone.add(name); continue; }
           budget--;
           tried.add(name);
           if (!(await sendTelegram(env, bounded(text)))) continue; // stays parked for the next run
           await env.MONITOR_KV.delete(name);
-          texts.delete(name);
+          gone.add(name);
           progress = true;
         }
       }
