@@ -14,6 +14,7 @@ import {
   newestStates,
   shardOfName,
   staleHeartbeats,
+  jobsSummary,
   staleTargets,
   targetsForShard,
   watchedShard,
@@ -288,5 +289,23 @@ describe('formatTransitions', () => {
       at(90),
     );
     expect(text).toBe('🔴 a ล่ม (HTTP 500)\n🟡 b ยังล่ม 1 ชม. 30 นาที\n🟢 c กลับมาแล้ว · ล่ม 1 ชม. 30 นาที');
+  });
+});
+
+describe('jobsSummary', () => {
+  const now = new Date('2026-11-17T12:00:00Z');
+  const specs = [
+    { job: 'ok-job', maxAgeHours: 6 },
+    { job: 'late-job', maxAgeHours: 6 },
+    { job: 'failed-job', maxAgeHours: 6 },
+    { job: 'never', maxAgeHours: 6 },
+  ];
+  it('names late and failed jobs only', () => {
+    const records = {
+      'ok-job': { at: '2026-11-17T10:00:00Z', ok: true },
+      'late-job': { at: '2026-11-17T04:00:00Z', ok: true },
+      'failed-job': { at: '2026-11-17T11:00:00Z', ok: false },
+    };
+    expect(jobsSummary(specs, records, now)).toEqual({ total: 4, late: ['late-job', 'never'], failed: ['failed-job'] });
   });
 });

@@ -23,6 +23,7 @@ import {
   type CheckResult,
   type HeartbeatRecord,
   type ShardState,
+  jobsSummary,
 } from './monitor';
 import { HEARTBEATS, SHARDS, TARGETS, type Target } from './targets';
 import { withOptionalSentry, type WorkerHandler } from './sentry';
@@ -53,6 +54,8 @@ const PROBE_CONCURRENCY = 6;
 const stateKey = (shard: number) => `state:${shard}`;
 const heartbeatKey = (job: string) => `hb:${job}`;
 const staleKey = (job: string) => `hbstale:${job}`;
+// Names of late or failed jobs for the public status, rewritten by shard 0 only when it changes.
+const JOBS_SUMMARY_KEY = 'hb-summary';
 // A failed-run alert the heartbeat handler could not deliver: one immutable key per event. The
 // handler only creates keys, the shard 0 cron only deletes keys it has already copied into its
 // durable queue, so no event is ever overwritten or lost.
@@ -187,7 +190,13 @@ async function handleStatus(request: Request, env: Env): Promise<Response> {
         ),
       )
     : undefined;
-  const response = Response.json({ results, heartbeats, timestamp: new Date().toISOString() });
+  let jobs: unknown = null;
+  try {
+    jobs = await env.MONITOR_KV.get(JOBS_SUMMARY_KEY, 'json');
+  } catch {
+    jobs = null;
+  }
+  const response = Response.json({ results, jobs, heartbeats, timestamp: new Date().toISOString() });
   if (full) return response;
   response.headers.set('Cache-Control', `public, max-age=${PUBLIC_STATUS_CACHE_SECONDS}`);
   await caches.default.put(cacheKey, response.clone());
@@ -341,6 +350,13 @@ async function runShard(env: Env, shard: number, opts: { readOnly: boolean; sche
       const last = records[spec.job]?.at;
       fresh.push(`🟡 ${spec.job} ไม่รายงานเกิน ${spec.maxAgeHours} ชม. · ${last ? `ล่าสุด ${bangkokTime(last)}` : 'ยังไม่เคยรายงาน'}`);
       staleMarks.push(spec.job);
+    }
+    // A failed summary write only leaves the public status a run behind; it never blocks alerts.
+    try {
+      const summary = JSON.stringify(jobsSummary(HEARTBEATS, records, now));
+      if ((await env.MONITOR_KV.get(JOBS_SUMMARY_KEY)) !== summary) await env.MONITOR_KV.put(JOBS_SUMMARY_KEY, summary);
+    } catch {
+      /* next run retries */
     }
   }
 

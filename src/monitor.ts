@@ -227,6 +227,32 @@ export function staleHeartbeats(
   });
 }
 
+/** Scheduled-job health for the public status: names only, no detail. */
+export interface JobsSummary {
+  total: number;
+  late: string[];
+  failed: string[];
+}
+
+/** Jobs overdue (no report within maxAgeHours plus grace) or whose last run failed. */
+export function jobsSummary(
+  specs: HeartbeatSpec[],
+  records: Record<string, HeartbeatRecord | null>,
+  now: Date,
+): JobsSummary {
+  const late: string[] = [];
+  const failed: string[] = [];
+  for (const spec of specs) {
+    const record = records[spec.job];
+    if (!record || hoursBetween(record.at, now) >= spec.maxAgeHours + (record.ok ? heartbeatGraceHours(spec) : 0)) {
+      late.push(spec.job);
+    } else if (!record.ok) {
+      failed.push(spec.job);
+    }
+  }
+  return { total: specs.length, late, failed };
+}
+
 /** A target counts as not probed after this long (sleeping services are probed hourly). */
 export const STALE_AFTER_HOURS = { awake: 0.5, sleeping: 2.5 };
 
