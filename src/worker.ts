@@ -24,6 +24,8 @@ import {
   type HeartbeatRecord,
   type ShardState,
   jobsSummary,
+  publicJobs,
+  type JobsSummary,
 } from './monitor';
 import { HEARTBEATS, SHARDS, TARGETS, type Target } from './targets';
 import { withOptionalSentry, type WorkerHandler } from './sentry';
@@ -192,7 +194,9 @@ async function handleStatus(request: Request, env: Env): Promise<Response> {
     : undefined;
   let jobs: unknown = null;
   try {
-    jobs = await env.MONITOR_KV.get(JOBS_SUMMARY_KEY, 'json');
+    const summary = await env.MONITOR_KV.get<JobsSummary>(JOBS_SUMMARY_KEY, 'json');
+    // Public callers get counts only: job names can name a client, like the targets this hides.
+    jobs = summary && (full ? summary : publicJobs(summary));
   } catch {
     jobs = null;
   }

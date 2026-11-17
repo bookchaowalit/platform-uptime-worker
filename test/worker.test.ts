@@ -152,9 +152,16 @@ describe('/status', () => {
     expect(body.heartbeats).toBeUndefined();
   });
 
-  it('shows the late and failed job names that shard 0 summarised, nothing else about jobs', async () => {
+  it('shows public callers job counts only, never job names', async () => {
     kv.store.set('hb-summary', JSON.stringify({ total: 3, late: ['posture-monitor'], failed: [] }));
     const body = (await (await call(request('/status'))).json()) as { jobs: unknown };
+    expect(body.jobs).toEqual({ total: 3, late: 1, failed: 0 });
+    expect(JSON.stringify(body)).not.toContain('posture-monitor');
+  });
+
+  it('shows the job names to an authorized caller', async () => {
+    kv.store.set('hb-summary', JSON.stringify({ total: 3, late: ['posture-monitor'], failed: [] }));
+    const body = (await (await call(request('/status', { headers: bearer(MONITOR_TOKEN) }))).json()) as { jobs: unknown };
     expect(body.jobs).toEqual({ total: 3, late: ['posture-monitor'], failed: [] });
   });
 
