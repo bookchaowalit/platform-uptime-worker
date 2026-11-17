@@ -29,6 +29,10 @@ export interface HeartbeatRecord {
   alerted?: boolean;
   // failed runs only: true when that streak's alert went to the parked queue instead of Telegram
   parked?: boolean;
+  // failed runs only: failed runs in a row so far, and true while the streak is still below the
+  // spec's failuresBeforeAlert (nothing was sent for it)
+  streak?: number;
+  held?: boolean;
 }
 
 /** Per-shard state stored as one KV value: target states plus alerts not yet delivered. */
