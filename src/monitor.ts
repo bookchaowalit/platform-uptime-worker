@@ -253,6 +253,11 @@ export function jobsSummary(
   return { total: specs.length, late, failed };
 }
 
+/** The public form of the summary: counts, no job names. */
+export function publicJobs(summary: JobsSummary): { total: number; late: number; failed: number } {
+  return { total: summary.total, late: summary.late.length, failed: summary.failed.length };
+}
+
 /** A target counts as not probed after this long (sleeping services are probed hourly). */
 export const STALE_AFTER_HOURS = { awake: 0.5, sleeping: 2.5 };
 
