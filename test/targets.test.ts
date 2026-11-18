@@ -224,12 +224,6 @@ describe('HEARTBEATS', () => {
 describe('Book Platform services (deployed 2026-10-29, security 2026-11-02)', () => {
   const hosts: Record<string, string> = {
     'communication-api': 'communication-api-production',
-    'media-api': 'media-api-production-91a5',
-    'data-api': 'data-api-production-bf8a',
-    'workflow-api': 'workflow-api-production-63de',
-    'commerce-api': 'commerce-api-production-9b24',
-    'logistics-api': 'logistics-api-production-d3bb',
-    'developer-api': 'developer-api-production-2fad',
     'security-api': 'security-api-production-f817',
     'payment-api': 'payment-api-production-3a91', // ready 2026-11-05 (Stripe test mode)
   };
@@ -238,6 +232,13 @@ describe('Book Platform services (deployed 2026-10-29, security 2026-11-02)', ()
     for (const [name, host] of Object.entries(hosts)) {
       expect(TARGETS.find((t) => t.name === name)?.url).toBe(`https://${host}.up.railway.app/readyz`);
       expect(SLEEPING_TARGET_NAMES).toContain(name);
+    }
+  });
+
+  it('does not probe the six services archived 2026-11-18 (SCALE-READINESS D2)', () => {
+    for (const name of ['media-api', 'data-api', 'workflow-api', 'commerce-api', 'logistics-api', 'developer-api']) {
+      expect(TARGETS.find((t) => t.name === name)).toBeUndefined();
+      expect(SLEEPING_TARGET_NAMES).not.toContain(name);
     }
   });
 });
