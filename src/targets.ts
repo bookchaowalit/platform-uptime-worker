@@ -35,8 +35,8 @@ const SLEEPS = new Set([
   'roles-skills-api', 'operating-api', 'opportunities-api', 'learning-api', 'projects-api',
   'content-api', 'radar-api', 'accounts-api', 'accounts-metadata-api', 'automation-api',
   'intake-api', 'notifications-api', 'integrations-api', 'knowledge-api', 'saas-catalog-api',
-  'communication-api', 'media-api', 'data-api', 'workflow-api', 'commerce-api', 'logistics-api',
-  'developer-api', 'security-api', 'payment-api', 'credits-api', 'meeting-minutes-api',
+  'communication-api',
+  'security-api', 'payment-api', 'credits-api', 'meeting-minutes-api',
 ]);
 
 const ALL_TARGETS: Target[] = [
@@ -80,12 +80,9 @@ const ALL_TARGETS: Target[] = [
   { name: 'offers-api', url: railway('offers-api-production'), group: 'own' },
   // Book Platform services (bookchaowalit-backend/platform-*), deployed 2026-10-29
   { name: 'communication-api', url: railway('communication-api-production', '/readyz'), group: 'own' },
-  { name: 'media-api', url: railway('media-api-production-91a5', '/readyz'), group: 'own' },
-  { name: 'data-api', url: railway('data-api-production-bf8a', '/readyz'), group: 'own' },
-  { name: 'workflow-api', url: railway('workflow-api-production-63de', '/readyz'), group: 'own' },
-  { name: 'commerce-api', url: railway('commerce-api-production-9b24', '/readyz'), group: 'own' },
-  { name: 'logistics-api', url: railway('logistics-api-production-d3bb', '/readyz'), group: 'own' },
-  { name: 'developer-api', url: railway('developer-api-production-2fad', '/readyz'), group: 'own' },
+  // media, data, workflow, commerce, logistics and developer were archived 2026-11-18 (SCALE-READINESS
+  // D2: no caller, Railway compute budget). Their Railway deployments are removed; re-add the target
+  // with its /readyz URL and the SLEEPS entry when one is redeployed.
   { name: 'security-api', url: railway('security-api-production-f817', '/readyz'), group: 'own' }, // 2026-11-02
   { name: 'payment-api', url: railway('payment-api-production-3a91', '/readyz'), group: 'own' }, // 2026-11-05, Stripe test mode
   { name: 'credits-api', url: railway('credits-api-production-6d80', '/readyz'), group: 'own' }, // 2026-11-08, platform-credits SPEC-003
