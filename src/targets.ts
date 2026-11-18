@@ -193,6 +193,10 @@ export const HEARTBEATS: HeartbeatSpec[] = [
   // Top Wikipedia articles th + en → Bronze (data-lake-pipelines `wiki-pageviews` workflow, jobs queue daily at 03:50 UTC).
   // 26 h = one daily run plus two hours; ok:false (API, storage or contract error) alerts at once.
   { job: 'wiki-pageviews', maxAgeHours: 26 },
+  // Open feeds: every free feed / keyless API in open-feeds.yaml → Bronze (data-lake-pipelines `open-feeds`
+  // workflow, jobs queue hourly at :25). 3 h = two missed runs plus an hour; ok:false (registry or lake
+  // error, or more than half of the due feeds failing) alerts at once.
+  { job: 'open-feeds', maxAgeHours: 3 },
   // Remote job leads (sales-crm `job-radar` Railway cron, hourly at :07): feeds → lake → job_leads
   // → Telegram. 3 h = two missed runs plus an hour; ok:false (feeds or assist failed) alerts at once.
   // Added after it ran nothing from 2026-10-29 to 11-03 without anyone noticing.
