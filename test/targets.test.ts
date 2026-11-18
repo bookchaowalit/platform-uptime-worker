@@ -189,6 +189,10 @@ describe('HEARTBEATS', () => {
     expect(HEARTBEATS.find((h) => h.job === 'files-backup')?.maxAgeHours).toBe(26);
   });
 
+  it('watches the daily second copy of the database backups', () => {
+    expect(HEARTBEATS.find((h) => h.job === 'db-backup-mirror')?.maxAgeHours).toBe(26);
+  });
+
   it('watches the hourly event notifier with room for two missed runs', () => {
     expect(HEARTBEATS.find((h) => h.job === 'event-notifier')?.maxAgeHours).toBe(3);
   });

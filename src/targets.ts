@@ -243,6 +243,12 @@ export const HEARTBEATS: HeartbeatSpec[] = [
   // `homelab-files-backup`, daily 02:30 Asia/Bangkok). 26 h = one daily run plus two hours;
   // ok:false (backup, prune or check failed) alerts at once. Runbook: architecture-docs HOMELAB-FILE-SERVER.md.
   { job: 'files-backup', maxAgeHours: 26 },
+  // Second copy of the database backups (3-2-1): beelink host `db-backups-mirror.timer` copies R2
+  // `db-backups` (still age-encrypted; the host has no decryption key) with a read-only token,
+  // daily 03:30 Asia/Bangkok, copy-only so a wiped bucket cannot empty the mirror. 26 h = one daily
+  // run plus two hours; ok:false (copy failed or a target has no fresh manifest) alerts at once.
+  // Runbook: platform-db-backup docs/runbook.md "Second copy".
+  { job: 'db-backup-mirror', maxAgeHours: 26 },
 ]);
 
 // Two cron triggers split the targets (by a hash of the name, so adding a target never moves the
